@@ -1,0 +1,37 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/Inter-Bold.ttf",
+      "sha1": "78fb38f212fa49029aff24c669a39648d9b4e68b"
+    },
+    {
+      "path": "assets/fonts/Inter-Regular.ttf",
+      "sha1": "78fb38f212fa49029aff24c669a39648d9b4e68b"
+    },
+    {
+      "path": "assets/fonts/Inter-SemiBold.ttf",
+      "sha1": "78fb38f212fa49029aff24c669a39648d9b4e68b"
+    },
+    {
+      "path": "assets/fonts/Montserrat-Black.ttf",
+      "sha1": "78fb38f212fa49029aff24c669a39648d9b4e68b"
+    },
+    {
+      "path": "assets/fonts/Montserrat-Bold.ttf",
+      "sha1": "78fb38f212fa49029aff24c669a39648d9b4e68b"
+    },
+    {
+      "path": "assets/fonts/Montserrat-ExtraBold.ttf",
+      "sha1": "78fb38f212fa49029aff24c669a39648d9b4e68b"
+    },
+    {
+      "path": "assets/fonts/Montserrat-Regular.ttf",
+      "sha1": "78fb38f212fa49029aff24c669a39648d9b4e68b"
+    },
+    {
+      "path": "assets/fonts/Montserrat-SemiBold.ttf",
+      "sha1": "78fb38f212fa49029aff24c669a39648d9b4e68b"
+    }
+  ]
+}

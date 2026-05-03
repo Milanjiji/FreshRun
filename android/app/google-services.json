@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "419337772453",
+    "project_id": "freshrun-cfcfb",
+    "storage_bucket": "freshrun-cfcfb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:419337772453:android:a37beb4295243e60b49c4c",
+        "android_client_info": {
+          "package_name": "com.freshrun"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCbUqfS0RrXO9cSJkcRk_x1e9kv9vkQpqU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
