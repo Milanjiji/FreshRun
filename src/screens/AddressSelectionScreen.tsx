@@ -12,6 +12,8 @@ import {
   Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { Colors } from '../theme/colors';
+import { Fonts } from '../theme/typography';
 import axios from 'axios';
 
 const BACKEND_URL = "https://freshrun-backend.onrender.com";
@@ -131,7 +133,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
             </View>
           )}
           {selectingId === item.id && (
-            <ActivityIndicator size="small" color="#00C853" style={{ marginLeft: 10 }} />
+            <ActivityIndicator size="small" color={Colors.success} style={{ marginLeft: 10 }} />
           )}
         </View>
         <Text style={styles.addressFull} numberOfLines={2}>
@@ -147,7 +149,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor={Colors.surface} />
       
       {/* Header */}
       <View style={styles.header}>
@@ -171,12 +173,12 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
         {/* Action Buttons */}
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.actionButton}>
-            <Icon name="locate" size={20} color="#0052FF" />
+            <Icon name="locate" size={20} color={Colors.secondary} />
             <Text style={styles.actionButtonText}>Use Current Location</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionButton}>
-            <Icon name="add-circle-outline" size={20} color="#0052FF" />
+            <Icon name="add-circle-outline" size={20} color={Colors.secondary} />
             <Text style={styles.actionButtonText}>Add New Address</Text>
           </TouchableOpacity>
         </View>
@@ -189,7 +191,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
           {renderAddressItem(currentAddress, true)}
 
           {loading ? (
-            <ActivityIndicator size="large" color="#60c547" style={{ margin: 20 }} />
+            <ActivityIndicator size="large" color={Colors.primary} style={{ margin: 20 }} />
           ) : (
             <>
               {savedAddresses.map((addr) => (
@@ -206,7 +208,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
           {/* View all */}
           <TouchableOpacity style={styles.viewAllButton}>
             <Text style={styles.viewAllText}>View all</Text>
-            <Icon name="chevron-down" size={16} color="#0052FF" style={{ marginLeft: 5, marginTop: 2 }} />
+            <Icon name="chevron-down" size={16} color={Colors.secondary} style={{ marginLeft: 5, marginTop: 2 }} />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -215,31 +217,31 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#fff' },
+  safeArea: { flex: 1, backgroundColor: Colors.surface },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, height: 60 },
   backButton: { padding: 10, marginLeft: -10, justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { fontSize: 18, fontFamily: 'Montserrat-Bold', fontWeight: '800', color: '#333', marginLeft: 5 },
+  headerTitle: { fontSize: 18, fontFamily: Fonts.bold, fontWeight: '800', color: '#333', marginLeft: 5 },
   container: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 40 },
   searchContainer: { height: 54, borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 15, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  searchInput: { flex: 1, fontSize: 16, fontFamily: 'Inter-Regular', color: '#333' },
+  searchInput: { flex: 1, fontSize: 16, fontFamily: Fonts.regular, color: '#333' },
   actionRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
   actionButton: { flex: 0.48, height: 46, borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 12, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 },
-  actionButtonText: { fontSize: 11, fontFamily: 'Inter-Bold', color: '#555', marginLeft: 6, flex: 1 },
-  sectionTitle: { fontSize: 11, fontFamily: 'Inter-Bold', color: '#999', marginBottom: 12, letterSpacing: 0.5 },
-  addressListCard: { backgroundColor: '#fff', borderRadius: 20, borderWidth: 1, borderColor: '#F0F0F0', elevation: 0, overflow: 'hidden' },
+  actionButtonText: { fontSize: 11, fontFamily: Fonts.bold, color: '#555', marginLeft: 6, flex: 1 },
+  sectionTitle: { fontSize: 11, fontFamily: Fonts.bold, color: '#999', marginBottom: 12, letterSpacing: 0.5 },
+  addressListCard: { backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1, borderColor: '#F0F0F0', elevation: 0, overflow: 'hidden' },
   addressItem: { flexDirection: 'row', padding: 16 },
   iconContainer: { width: 46, height: 46, backgroundColor: '#F5F5F5', borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  distanceText: { fontSize: 9, fontFamily: 'Inter-Bold', color: '#333', marginTop: 1 },
+  distanceText: { fontSize: 9, fontFamily: Fonts.bold, color: '#333', marginTop: 1 },
   addressInfo: { flex: 1, justifyContent: 'center' },
   addressHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 3 },
-  addressName: { fontSize: 15, fontFamily: 'Inter-Bold', color: '#333' },
+  addressName: { fontSize: 15, fontFamily: Fonts.bold, color: '#333' },
   selectedBadge: { backgroundColor: '#E6F9F0', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, marginLeft: 8 },
-  selectedBadgeText: { fontSize: 9, fontFamily: 'Inter-Bold', color: '#00C853' },
-  addressFull: { fontSize: 12, fontFamily: 'Inter-Regular', color: '#888', lineHeight: 16 },
+  selectedBadgeText: { fontSize: 9, fontFamily: Fonts.bold, color: Colors.success },
+  addressFull: { fontSize: 12, fontFamily: Fonts.regular, color: '#888', lineHeight: 16 },
   menuButton: { padding: 5, justifyContent: 'center' },
   listSeparator: { height: 1, backgroundColor: '#F5F5F5', marginHorizontal: 16 },
   viewAllButton: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 12, backgroundColor: '#fff' },
-  viewAllText: { fontSize: 13, fontFamily: 'Inter-Bold', color: '#0052FF' },
+  viewAllText: { fontSize: 13, fontFamily: Fonts.bold, color: Colors.secondary },
 });
 
 export default AddressSelectionScreen;

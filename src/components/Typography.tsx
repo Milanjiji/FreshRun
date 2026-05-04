@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text, TextProps, StyleSheet } from 'react-native';
+import { Fonts } from '../theme/typography';
 
 export const PageTitle: React.FC<TextProps> = ({ style, children, ...props }) => {
   return (
@@ -20,14 +21,14 @@ export const PageSubtitle: React.FC<TextProps> = ({ style, children, ...props })
 const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 32,
-    fontFamily: 'Montserrat-Black',
+    fontFamily: Fonts.black,
     fontWeight: '900',
     color: '#000',
     marginBottom: 10,
   },
   pageSubtitle: {
     fontSize: 16,
-    fontFamily: 'Montserrat-Black',
+    fontFamily: Fonts.semiBold,
     fontWeight: '600',
     color: '#666',
     lineHeight: 24,

@@ -11,14 +11,22 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { Colors } from '../theme/colors';
+import { Fonts } from '../theme/typography';
 
 interface AccountScreenProps {
   userData: any;
   onBack: () => void;
   onLogout: () => void;
+  onSavedAddressPress?: () => void;
 }
 
-const AccountScreen: React.FC<AccountScreenProps> = ({ userData, onBack, onLogout }) => {
+const AccountScreen: React.FC<AccountScreenProps> = ({ 
+  userData, 
+  onBack, 
+  onLogout,
+  onSavedAddressPress 
+}) => {
   const [menuVisible, setMenuVisible] = useState(false);
 
   const menuItems = [
@@ -40,7 +48,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({ userData, onBack, onLogou
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f2f5f9" />
+      <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
       
       {/* Header */}
       <View style={styles.header}>
@@ -101,7 +109,11 @@ const AccountScreen: React.FC<AccountScreenProps> = ({ userData, onBack, onLogou
         {/* Quick Links Grid */}
         <View style={styles.quickLinksContainer}>
           {quickLinks.map((item) => (
-            <TouchableOpacity key={item.id} style={styles.quickLinkCard}>
+            <TouchableOpacity 
+              key={item.id} 
+              style={styles.quickLinkCard}
+              onPress={item.id === 'q1' ? onSavedAddressPress : undefined}
+            >
               <View style={styles.quickLinkIconContainer}>
                 <Icon name={item.icon} size={24} color="#333" />
               </View>
@@ -142,13 +154,13 @@ const AccountScreen: React.FC<AccountScreenProps> = ({ userData, onBack, onLogou
             </View>
             <View style={styles.statusBadge}>
               <Text style={styles.statusText}>Delivered</Text>
-              <Icon name="checkmark-circle" size={16} color="#60c547" style={styles.statusIcon} />
+              <Icon name="checkmark-circle" size={16} color={Colors.primary} style={styles.statusIcon} />
             </View>
           </View>
           <View style={styles.orderDivider} />
           <TouchableOpacity style={styles.viewMenuButton}>
             <Text style={styles.viewMenuText}>VIEW DETAILS</Text>
-            <Icon name="chevron-forward" size={14} color="#60c547" />
+            <Icon name="chevron-forward" size={14} color={Colors.primary} />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -159,7 +171,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({ userData, onBack, onLogou
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f2f5f9', // Light blueish grey background as in image
+    backgroundColor: Colors.background, // Light blueish grey background as in image
   },
   header: {
     flexDirection: 'row',
@@ -176,7 +188,7 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   helpButton: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.surface,
     paddingHorizontal: 15,
     paddingVertical: 6,
     borderRadius: 20,
@@ -190,9 +202,9 @@ const styles = StyleSheet.create({
     shadowRadius: 1,
   },
   helpText: {
-    color: '#0066FF',
+    color: Colors.secondary,
     fontSize: 14,
-    fontFamily: 'Inter-Bold',
+    fontFamily: Fonts.bold,
   },
   scrollContent: {
     paddingBottom: 30,
@@ -203,14 +215,14 @@ const styles = StyleSheet.create({
   },
   userName: {
     fontSize: 28,
-    fontFamily: 'Inter-Black',
+    fontFamily: Fonts.black,
     fontWeight: '900',
     color: '#1a1a1a',
     marginBottom: 5,
   },
   userDetailText: {
     fontSize: 14,
-    fontFamily: 'Inter-Regular',
+    fontFamily: Fonts.regular,
     color: '#666',
     marginTop: 2,
   },
@@ -221,7 +233,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   quickLinkCard: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.surface,
     width: '23%',
     paddingVertical: 15,
     paddingHorizontal: 8,
@@ -236,13 +248,13 @@ const styles = StyleSheet.create({
   },
   quickLinkTitle: {
     fontSize: 11,
-    fontFamily: 'Inter-Bold',
+    fontFamily: Fonts.bold,
     textAlign: 'center',
     color: '#444',
     lineHeight: 14,
   },
   menuCard: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.surface,
     marginHorizontal: 15,
     borderRadius: 20,
     paddingHorizontal: 20,
@@ -267,7 +279,7 @@ const styles = StyleSheet.create({
   },
   menuItemText: {
     fontSize: 15,
-    fontFamily: 'Inter-Medium',
+    fontFamily: Fonts.medium,
     color: '#333',
     marginLeft: 15,
   },
@@ -278,12 +290,12 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 13,
-    fontFamily: 'Montserrat-Bold',
+    fontFamily: Fonts.bold,
     color: '#1a1a1a',
     letterSpacing: 0.5,
   },
   orderCard: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.surface,
     marginHorizontal: 15,
     borderRadius: 15,
     padding: 15,
@@ -297,12 +309,12 @@ const styles = StyleSheet.create({
   },
   orderStoreName: {
     fontSize: 16,
-    fontFamily: 'Inter-Bold',
+    fontFamily: Fonts.bold,
     color: '#333',
   },
   orderLocation: {
     fontSize: 13,
-    fontFamily: 'Inter-Regular',
+    fontFamily: Fonts.regular,
     color: '#888',
     marginTop: 2,
   },
@@ -312,8 +324,8 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 13,
-    fontFamily: 'Inter-Bold',
-    color: '#60c547',
+    fontFamily: Fonts.bold,
+    color: Colors.primary,
     marginRight: 5,
   },
   statusIcon: {
@@ -331,15 +343,15 @@ const styles = StyleSheet.create({
   },
   viewMenuText: {
     fontSize: 12,
-    fontFamily: 'Inter-Bold',
-    color: '#60c547',
+    fontFamily: Fonts.bold,
+    color: Colors.primary,
     marginRight: 4,
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Colors.surface,
     marginHorizontal: 15,
     marginBottom: 20,
     paddingVertical: 15,
@@ -349,8 +361,8 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     fontSize: 15,
-    fontFamily: 'Inter-Bold',
-    color: '#FF3B30',
+    fontFamily: Fonts.bold,
+    color: Colors.error,
     marginLeft: 10,
   },
   modalOverlay: {
@@ -379,7 +391,7 @@ const styles = StyleSheet.create({
   menuOptionText: {
     color: '#fff',
     fontSize: 14, // Reduced from 16
-    fontFamily: 'Inter-Medium',
+    fontFamily: Fonts.medium,
   },
   menuDivider: {
     height: 1,

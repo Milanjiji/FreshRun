@@ -16,6 +16,7 @@ import axios from 'axios';
 import { storage } from '../utils/storage';
 import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
+import { Fonts } from '../theme/typography';
 
 // Replace with your actual backend URL
 const BACKEND_URL = "https://freshrun-backend.onrender.com";
@@ -301,13 +302,13 @@ const styles = StyleSheet.create({
   },
   countryCode: {
     fontSize: 16,
-    fontFamily: 'Inter-Regular',
+    fontFamily: Fonts.regular,
     color: '#000',
   },
   textInput: {
     flex: 1,
     fontSize: 16,
-    fontFamily: 'Inter-Regular',
+    fontFamily: Fonts.regular,
     color: '#000',
   },
   forgotPassword: {
@@ -316,7 +317,7 @@ const styles = StyleSheet.create({
   },
   forgotPasswordText: {
     fontSize: 14,
-    fontFamily: 'Inter-Medium',
+    fontFamily: Fonts.medium,
     color: '#666',
   },
   footer: {
@@ -326,12 +327,12 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 14,
-    fontFamily: 'Inter-Regular',
+    fontFamily: Fonts.regular,
     color: '#000',
   },
   linkText: {
     fontSize: 14,
-    fontFamily: 'Inter-Bold',
+    fontFamily: Fonts.bold,
     color: '#5D3FD3',
     textDecorationLine: 'underline',
   },

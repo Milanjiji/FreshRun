@@ -14,6 +14,7 @@ import {
 import Geolocation from '@react-native-community/geolocation';
 import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
+import { Fonts } from '../theme/typography';
 
 interface LocationScreenProps {
   onLocationSuccess: (location: { latitude: number; longitude: number }) => void;
@@ -202,7 +203,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#FF3B30',
-    fontFamily: 'Inter-Medium',
+    fontFamily: Fonts.medium,
     fontSize: 14,
     textAlign: 'center',
     marginTop: 20,
@@ -216,7 +217,7 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 16,
-    fontFamily: 'Inter-Bold',
+    fontFamily: Fonts.bold,
     color: '#5D3FD3',
     textDecorationLine: 'underline',
     textAlign: 'center',

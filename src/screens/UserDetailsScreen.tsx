@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import { storage } from '../utils/storage';
+import { Fonts } from '../theme/typography';
 
 const BACKEND_URL = "https://freshrun-backend.onrender.com";
 
@@ -259,24 +260,24 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#F5F6F8' },
   loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F6F8' },
-  loaderText: { marginTop: 15, fontSize: 16, color: '#666', fontFamily: 'Inter-Medium' },
+  loaderText: { marginTop: 15, fontSize: 16, color: '#666', fontFamily: Fonts.medium },
   header: { height: 60, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: '#EEE' },
   backButton: { padding: 5, marginRight: 10 },
-  backArrow: { fontSize: 24, color: '#333', fontWeight: 'bold' },
+  backArrow: { fontSize: 24, color: '#333', fontFamily: Fonts.bold, fontWeight: 'bold' },
   headerTextContainer: { flex: 1 },
-  headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
-  headerSubtitle: { fontSize: 12, color: '#999' },
+  headerTitle: { fontSize: 16, fontFamily: Fonts.bold, fontWeight: 'bold', color: '#333' },
+  headerSubtitle: { fontSize: 12, fontFamily: Fonts.regular, color: '#999' },
   container: { flex: 1 },
   scrollContent: { padding: 15, paddingBottom: 40 },
-  sectionTitle: { fontSize: 16, fontWeight: '800', color: '#333', marginVertical: 12, marginLeft: 5 },
+  sectionTitle: { fontSize: 16, fontFamily: Fonts.bold, fontWeight: '800', color: '#333', marginVertical: 12, marginLeft: 5 },
   card: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 5 },
   row: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   inputRow: { flexDirection: 'row', alignItems: 'center' },
   checkboxMinimal: { width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   checkboxCheckMark: { width: 10, height: 10, backgroundColor: '#000', borderRadius: 2 },
   receiverInfo: { flex: 1 },
-  accountLabel: { fontSize: 16, fontWeight: '800', color: '#333' },
-  accountDetails: { fontSize: 14, color: '#999', marginTop: 2 },
+  accountLabel: { fontSize: 16, fontFamily: Fonts.bold, fontWeight: '800', color: '#333' },
+  accountDetails: { fontSize: 14, fontFamily: Fonts.regular, color: '#999', marginTop: 2 },
   inputGroup: { gap: 12 },
   borderInput: { 
     borderWidth: 1, 
@@ -286,6 +287,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15, 
     paddingVertical: 0,
     fontSize: 15, 
+    fontFamily: Fonts.regular,
     color: '#333',
     backgroundColor: '#fff'
   },
@@ -293,7 +295,7 @@ const styles = StyleSheet.create({
   tabsContainer: { flexDirection: 'row', backgroundColor: '#F0F2F5', borderRadius: 30, padding: 4, marginBottom: 20 },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 25 },
   activeTab: { backgroundColor: '#000' },
-  tabText: { fontSize: 14, color: '#666', fontWeight: '600' },
+  tabText: { fontSize: 14, fontFamily: Fonts.semiBold, color: '#666', fontWeight: '600' },
   activeTabText: { color: '#fff' },
   areaDisplay: { 
     borderWidth: 1, 
@@ -304,12 +306,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff'
   },
-  areaLabel: { fontSize: 12, color: '#999', marginBottom: 4 },
-  areaValue: { fontSize: 14, color: '#666', fontWeight: '500' },
+  areaLabel: { fontSize: 12, fontFamily: Fonts.regular, color: '#999', marginBottom: 4 },
+  areaValue: { fontSize: 14, fontFamily: Fonts.medium, color: '#666', fontWeight: '500' },
   changeButton: { padding: 5 },
-  changeLink: { fontSize: 12, color: '#0052FF', fontWeight: 'bold' },
+  changeLink: { fontSize: 12, fontFamily: Fonts.bold, color: '#0052FF', fontWeight: 'bold' },
   saveButton: { height: 60, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginTop: 30 },
-  saveButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
+  saveButtonText: { fontSize: 16, fontFamily: Fonts.bold, fontWeight: 'bold', color: '#fff' },
   disabledButton: { backgroundColor: '#D1D5DB' },
   activeSaveButton: { backgroundColor: '#000' },
 });

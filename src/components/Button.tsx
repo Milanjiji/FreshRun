@@ -6,6 +6,7 @@ import {
   ActivityIndicator, 
   TouchableOpacityProps 
 } from 'react-native';
+import { Fonts } from '../theme/typography';
 
 interface PrimaryButtonProps extends TouchableOpacityProps {
   title: string;
@@ -45,7 +46,7 @@ const styles = StyleSheet.create({
   text: {
     color: '#fff',
     fontSize: 18,
-    fontFamily: 'Montserrat-Black',
+    fontFamily: Fonts.black,
     fontWeight: '900',
   },
 });

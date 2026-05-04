@@ -16,6 +16,9 @@ import UserDetailsScreen from './src/screens/UserDetailsScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import AddressSelectionScreen from './src/screens/AddressSelectionScreen';
 import AccountScreen from './src/screens/AccountScreen';
+import StoreDetailsScreen from './src/screens/StoreDetailsScreen';
+import { Colors } from './src/theme/colors';
+import { Fonts } from './src/theme/typography';
 
 function App() {
   const [userToken, setUserToken] = useState<string | null>(null);
@@ -25,6 +28,7 @@ function App() {
   const [locationData, setLocationData] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isSelectingLocation, setIsSelectingLocation] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
+  const [selectedStore, setSelectedStore] = useState<any>(null);
 
   // Check login and location state on start
   useEffect(() => {
@@ -148,6 +152,19 @@ function App() {
           userData={userData}
           onBack={() => setShowAccount(false)}
           onLogout={handleLogout}
+          onSavedAddressPress={() => {
+            setShowAccount(false);
+            setIsSelectingLocation(true);
+          }}
+        />
+      );
+    }
+
+    if (selectedStore) {
+      return (
+        <StoreDetailsScreen 
+          store={selectedStore} 
+          onBack={() => setSelectedStore(null)} 
         />
       );
     }
@@ -159,6 +176,7 @@ function App() {
         onLogout={handleLogout} 
         onAddressPress={() => setIsSelectingLocation(true)}
         onProfilePress={() => setShowAccount(true)}
+        onStorePress={(store) => setSelectedStore(store)}
       />
     );
   };
@@ -173,11 +191,12 @@ function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.surface,
   },
   logoutText: {
     color: '#fff',
     fontSize: 18,
+    fontFamily: Fonts.bold,
     fontWeight: 'bold',
   },
 });
