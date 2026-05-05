@@ -14,6 +14,8 @@ import HomeHeader from '../components/HomeHeader';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { API_BASE_URL } from '../config/api';
+
 
 interface HomeScreenProps {
   userData: any;
@@ -54,15 +56,18 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const fetchHomeData = async () => {
     setLoading(true);
     try {
-      const baseUrl = 'https://freshrun-backend.onrender.com';
+      const baseUrl = API_BASE_URL;
+
       
-      const storeRes = await fetch(`${baseUrl}/stores?category=${selectedCategory}&is_veg=${isVeg}`);
+      // Fetch stores including inactive ones to show them as grayed out
+      const storeRes = await fetch(`${baseUrl}/stores?category=${selectedCategory}&is_veg=${isVeg}&include_inactive=true`);
       const storeResult = await storeRes.json();
       if (storeResult.success) {
         setStores(storeResult.data);
       }
 
-      const productRes = await fetch(`${baseUrl}/products?category=${selectedCategory}&is_veg=${isVeg}`);
+      // Fetch products including inactive/out of stock
+      const productRes = await fetch(`${baseUrl}/products?category=${selectedCategory}&is_veg=${isVeg}&include_inactive=true`);
       const productResult = await productRes.json();
       if (productResult.success) {
         setProducts(productResult.data);
@@ -73,6 +78,32 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       setLoading(false);
     }
   };
+
+
+  const handleProductPress = async (product: any) => {
+    if (!product.store_id) return;
+
+    // 1. Try finding in currently loaded stores
+    const store = stores.find(s => s.id === product.store_id);
+    if (store) {
+      onStorePress(store);
+      return;
+    }
+
+    // 2. If not in current list, fetch specific store details
+    try {
+      const baseUrl = API_BASE_URL;
+      const response = await fetch(`${baseUrl}/stores/${product.store_id}`);
+
+      const result = await response.json();
+      if (result.success && result.data) {
+        onStorePress(result.data);
+      }
+    } catch (error) {
+      console.error('Error fetching store for product:', error);
+    }
+  };
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -87,36 +118,35 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
       <ScrollView 
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[1]}
+        stickyHeaderIndices={[0]}
       >
-        {/* Original Category Tabs */}
-        <View style={styles.categorySection}>
-          <View style={styles.categoryContainer}>
-            {categories.map((cat) => (
-              <TouchableOpacity 
-                key={cat.id} 
-                style={[
-                  styles.categoryBox, 
-                  selectedCategory === cat.id && styles.activeCategoryBox
-                ]}
-                onPress={() => setSelectedCategory(cat.id)}
-              >
-                <View style={[styles.iconBox, selectedCategory === cat.id && styles.activeIconBox]}>
-                  <Text style={styles.categoryIcon}>{cat.icon}</Text>
-                </View>
-                <Text style={[
-                  styles.categoryLabel,
-                  selectedCategory === cat.id && styles.activeCategoryLabel
-                ]}>
-                  {cat.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Original Sticky Header Section */}
+        {/* Sticky Section: Category Pills + Search Bar */}
         <View style={styles.stickySection}>
+
+          {/* Category Pills */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.pillsContainer}
+          >
+            {categories.map((cat) => {
+              const isActive = selectedCategory === cat.id;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.pillBtn, isActive && styles.pillBtnActive]}
+                  onPress={() => setSelectedCategory(cat.id)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                    {cat.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Search Row */}
           <View style={styles.searchRow}>
             <View style={styles.searchContainer}>
               <Icon name="search-outline" size={20} color="#666" />
@@ -154,16 +184,30 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
               [1, 2, 3, 4, 5].map((i) => <View key={i} style={styles.skeletonCircle} />)
             ) : products.length > 0 ? (
               products.map((product) => (
-                <TouchableOpacity key={product.id} style={styles.mindItem}>
+                <TouchableOpacity 
+                  key={product.id} 
+                  style={[styles.mindItem, !product.is_active && { opacity: 0.7 }]}
+                  onPress={() => product.is_active && handleProductPress(product)}
+                >
+
                   <View style={styles.mindImageContainer}>
                     {product.image_url ? (
-                      <Image source={{ uri: product.image_url }} style={styles.mindImage} />
+                      <Image 
+                        source={{ uri: product.image_url }} 
+                        style={[styles.mindImage, !product.is_active && { tintColor: 'gray' } as any]} 
+                      />
                     ) : (
                       <Icon name="fast-food-outline" size={24} color="#ccc" />
+                    )}
+                    {!product.is_active && (
+                      <View style={styles.notAvailableBadge}>
+                        <Text style={styles.notAvailableText}>OFF</Text>
+                      </View>
                     )}
                   </View>
                   <Text style={styles.mindName} numberOfLines={1}>{product.name}</Text>
                 </TouchableOpacity>
+
               ))
             ) : (
               <Text style={styles.noData}>No items found</Text>
@@ -202,16 +246,24 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
               return (
                 <TouchableOpacity 
                   key={store.id} 
-                  style={styles.storeCard}
+                  style={[styles.storeCard, !store.is_active && styles.storeCardInactive]}
                   onPress={() => onStorePress(store)}
                 >
                   <View style={styles.imageContainer}>
-                    <Image source={{ uri: store.image_url }} style={styles.storeImage} />
+                    <Image 
+                      source={{ uri: store.image_url }} 
+                      style={[styles.storeImage, !store.is_active && { opacity: 0.6 }]} 
+                    />
+                    {!store.is_active && (
+                      <View style={styles.unserviceableOverlay}>
+                         <Text style={styles.unserviceableTextOverlay}>CURRENTLY UNSERVICEABLE</Text>
+                      </View>
+                    )}
                     <TouchableOpacity style={styles.heartButton}>
                       <Icon name="heart-outline" size={22} color="#fff" />
                     </TouchableOpacity>
                     
-                    {displayDiscount > 0 && (
+                    {displayDiscount > 0 && store.is_active && (
                       <View style={styles.promoBadge}>
                         <Text style={styles.promoText}>Upto {displayDiscount}% OFF</Text>
                       </View>
@@ -224,17 +276,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
                   <View style={styles.storeInfo}>
                     <View style={styles.storeNameRow}>
-                      <Text style={styles.storeName}>{store.name}</Text>
-                      <View style={styles.ratingContainer}>
-                        <Icon name="star" size={12} color="#fff" />
-                        <Text style={styles.ratingText}>4.3 (196)</Text>
-                      </View>
+                      <Text style={[styles.storeName, !store.is_active && { color: '#999' }]}>{store.name}</Text>
                     </View>
 
                     <View style={styles.metaRow}>
                       <Text style={styles.metaText}>Calicut, 6.6 km</Text>
                       <View style={styles.metaDot} />
-                      <Text style={styles.metaText}>₹299 for two</Text>
+                      <Text style={styles.metaText}>₹1-299 for one</Text>
                     </View>
                     
                     <Text style={styles.cuisineText}>Beverages, Snacks, Desserts</Text>
@@ -256,65 +304,44 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  categorySection: {
-    paddingVertical: 15,
-    backgroundColor: '#fff',
-  },
-  categoryContainer: {
+  // ── Category Pills ──────────────────────────────────────────────
+  pillsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     paddingHorizontal: 15,
+    paddingTop: 8,
+    paddingBottom: 10,
+    gap: 8,
   },
-  categoryBox: {
-    flex: 1,
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    marginHorizontal: 5,
-    borderRadius: 15,
-    paddingVertical: 12,
+  pillBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 50,
+    backgroundColor: '#f0f0f0',
     borderWidth: 1,
-    borderColor: '#f0f0f0',
+    borderColor: '#e0e0e0',
   },
-  activeCategoryBox: {
+  pillBtnActive: {
+    backgroundColor: Colors.primary,
     borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '05',
-    borderWidth: 2,
   },
-  iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f9f9f9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  activeIconBox: {
-    backgroundColor: Colors.primary + '15',
-  },
-  categoryIcon: {
-    fontSize: 24,
-  },
-  categoryLabel: {
-    fontSize: 12,
-    fontFamily: Fonts.medium,
-    color: '#666',
-  },
-  activeCategoryLabel: {
-    color: Colors.primary,
+  pillText: {
+    fontSize: 13,
     fontFamily: Fonts.bold,
+    color: '#555',
+  },
+  pillTextActive: {
+    color: '#fff',
   },
   stickySection: {
-    backgroundColor: '#fff',
-    paddingTop: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    backgroundColor: Colors.white,
+    paddingTop: 6,
+    borderBottomWidth: 0,
   },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 15,
-    marginBottom: 15,
+    marginBottom: 12,
   },
   searchContainer: {
     flex: 1,
@@ -515,20 +542,8 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.black,
     color: '#1a1a1a',
   },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2e7d32',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 5,
-  },
-  ratingText: {
-    color: '#fff',
-    fontSize: 11,
-    fontFamily: Fonts.bold,
-    marginLeft: 3,
-  },
+
+
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -562,7 +577,40 @@ const styles = StyleSheet.create({
     borderRadius: 32.5,
     backgroundColor: '#f0f0f0',
     marginRight: 20,
+  },
+  unserviceableOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  unserviceableTextOverlay: {
+    fontSize: 14,
+    fontFamily: Fonts.black,
+    color: '#333',
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  storeCardInactive: {
+    backgroundColor: '#fafafa',
+    borderColor: '#eee',
+  },
+  notAvailableBadge: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 2,
+    alignItems: 'center',
+  },
+  notAvailableText: {
+    color: '#fff',
+    fontSize: 8,
+    fontFamily: Fonts.black,
   }
 });
+
 
 export default HomeScreen;

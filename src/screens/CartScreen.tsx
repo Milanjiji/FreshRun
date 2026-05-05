@@ -1,0 +1,1075 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  SafeAreaView,
+  Image,
+  StatusBar,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { API_BASE_URL } from '../config/api';
+import { Colors } from '../theme/colors';
+
+import { Fonts } from '../theme/typography';
+
+interface CartItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  store_id: string;
+  image_url?: string;
+  description?: string;
+  discount_percent?: number;
+}
+
+interface CartScreenProps {
+  cartItems: CartItem[];
+  onBack: () => void;
+  updateQuantity: (id: string, delta: number) => void;
+  clearCart: () => void;
+  locationAddress?: string;
+}
+
+const CartScreen: React.FC<CartScreenProps> = ({ 
+  cartItems, 
+  onBack, 
+  updateQuantity, 
+  clearCart,
+  locationAddress 
+}) => {
+  const [deliveryTip, setDeliveryTip] = useState(0);
+  const [storeData, setStoreData] = useState<Record<string, any>>({});
+  const [productStatuses, setProductStatuses] = useState<Record<string, any>>({});
+  const [appSettings, setAppSettings] = useState<any>(null);
+  const [isUnserviceable, setIsUnserviceable] = useState(false);
+  const [checkingServiceability, setCheckingServiceability] = useState(true);
+
+  // 1. Fetch App Settings
+  const fetchAppSettings = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/settings`);
+      const data = await response.json();
+      if (data.success) {
+        setAppSettings(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching app settings:', error);
+    }
+  }, []);
+
+  // 2. Check Serviceability
+  const checkServiceability = useCallback(async () => {
+    if (cartItems.length === 0) {
+      setCheckingServiceability(false);
+      return;
+    }
+    
+    setCheckingServiceability(true);
+    try {
+        const baseUrl = API_BASE_URL;
+        const statuses: Record<string, any> = {};
+        
+        const storeIds = [...new Set(cartItems.map(item => String(item.store_id || (item as any).storeId)).filter(id => id && id !== 'undefined'))];
+        
+        let anyStoreOffline = false;
+        const storeMap: Record<string, boolean> = {};
+        for (const storeId of storeIds) {
+          try {
+            const res = await fetch(`${baseUrl}/stores/${storeId}`);
+            if (!res.ok) {
+              storeMap[storeId] = true;
+              continue;
+            }
+            const data = await res.json();
+            const isActive = data.success && data.data ? data.data.is_active : true;
+            storeMap[storeId] = isActive;
+            if (data.success && data.data) {
+              setStoreData(prev => ({ ...prev, [storeId]: data.data }));
+            }
+            if (!isActive) anyStoreOffline = true;
+          } catch (e) {
+            storeMap[storeId] = true;
+          }
+        }
+
+        let anyItemUnavailable = false;
+        const storeGroups: Record<string, any[]> = {};
+        cartItems.forEach(item => {
+          const sId = String(item.store_id || (item as any).storeId);
+          if (!sId || sId === 'undefined') return;
+          if (!storeGroups[sId]) storeGroups[sId] = [];
+          storeGroups[sId].push(item);
+        });
+
+        for (const sId in storeGroups) {
+          try {
+            const res = await fetch(`${baseUrl}/products?store_id=${sId}&include_inactive=true`);
+            if (!res.ok) continue;
+            const data = await res.json();
+            
+            if (data.success && Array.isArray(data.data)) {
+              const storeProducts = data.data;
+              const isStoreActive = storeMap[sId] !== false;
+
+              storeGroups[sId].forEach(cartItem => {
+                const itemIdStr = String(cartItem.id);
+                const liveProd = storeProducts.find((p: any) => String(p.id) === itemIdStr);
+                
+                if (liveProd) {
+                  const isProdActive = Boolean(liveProd.is_active) && isStoreActive;
+                  const isProdStockOut = Boolean(liveProd.is_stock_out) || (liveProd.stock_quantity !== undefined && liveProd.stock_quantity <= 0);
+                  
+                  statuses[itemIdStr] = { is_active: isProdActive, is_stock_out: isProdStockOut };
+                  if (!isProdActive || isProdStockOut) anyItemUnavailable = true;
+                } else {
+                  statuses[itemIdStr] = { is_active: false, is_stock_out: true };
+                  anyItemUnavailable = true;
+                }
+              });
+            }
+          } catch (e) {}
+        }
+        setProductStatuses(statuses);
+        setIsUnserviceable(anyStoreOffline || anyItemUnavailable);
+      } catch (error) {
+        console.error('Serviceability check failed:', error);
+      } finally {
+        setCheckingServiceability(false);
+      }
+  }, [cartItems]);
+
+  // Hooks
+  useEffect(() => {
+    fetchAppSettings();
+  }, [fetchAppSettings]);
+
+  useEffect(() => {
+    checkServiceability();
+  }, [checkServiceability, locationAddress]);
+
+  // Derived Values (using useMemo for safety and performance)
+  const billingInfo = React.useMemo(() => {
+    // Subtotal
+    const sub = cartItems.reduce((sum, item) => {
+      const status = productStatuses[String(item.id)];
+      if (status && (!status.is_active || status.is_stock_out)) return sum;
+      const discount = item.discount_percent || 0;
+      const discountedPrice = item.price * (1 - discount / 100);
+      return sum + (discountedPrice * item.quantity);
+    }, 0);
+
+    // Savings
+    const savings = cartItems.reduce((sum, item) => {
+      const status = productStatuses[String(item.id)];
+      if (status && (!status.is_active || status.is_stock_out)) return sum;
+      const discount = item.discount_percent || 0;
+      return sum + (item.price * (discount / 100) * item.quantity);
+    }, 0);
+
+    // Handling Fee
+    const storeFees: Record<string, number> = {};
+    cartItems.forEach(item => {
+      const sId = String(item.store_id || (item as any).storeId);
+      if (!sId || sId === 'undefined') return;
+      const feeFromItem = (item as any).handling_fee;
+      const feeFromStore = storeData[sId]?.handling_fee;
+      const effectiveFee = parseFloat(feeFromItem !== undefined ? feeFromItem : feeFromStore) || 0;
+      if (storeFees[sId] === undefined || effectiveFee > storeFees[sId]) {
+        storeFees[sId] = effectiveFee;
+      }
+    });
+
+    const hFee = Object.values(storeFees).reduce((sum, fee) => sum + fee, 0);
+
+    // Delivery Fee
+    const dFee = sub > (parseFloat(appSettings?.free_delivery_threshold) || 500) 
+      ? 0 
+      : (parseFloat(appSettings?.min_delivery_fee) || 30);
+
+    // Late Night Fee Check
+    const isLateNightCheck = (() => {
+      if (!appSettings?.late_night_start || !appSettings?.late_night_end) return false;
+      const now = new Date();
+      const currentTime = now.getHours() * 60 + now.getMinutes();
+      const [sh, sm] = appSettings.late_night_start.split(':').map(Number);
+      const [eh, em] = appSettings.late_night_end.split(':').map(Number);
+      const st = sh * 60 + sm;
+      const et = eh * 60 + em;
+      return st > et ? (currentTime >= st || currentTime <= et) : (currentTime >= st && currentTime <= et);
+    })();
+
+    const lnFee = isLateNightCheck ? (parseFloat(appSettings?.late_night_fee) || 0) : 0;
+    let totalPayable = sub + hFee + dFee + lnFee + deliveryTip;
+
+    // Dev Bypass: If subtotal is exactly 1, force total to 1
+    if (sub === 1) {
+      totalPayable = 1;
+    }
+
+    return {
+      subtotal: sub,
+      totalSavings: savings,
+      handlingFee: hFee,
+      deliveryFee: dFee,
+      lateNightFee: lnFee,
+      isLateNight: isLateNightCheck,
+      total: totalPayable
+    };
+  }, [cartItems, productStatuses, storeData, appSettings, deliveryTip]);
+
+  const { subtotal, totalSavings, handlingFee, deliveryFee, lateNightFee, isLateNight, total } = billingInfo;
+
+
+
+  return (
+
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <View style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Icon name="chevron-back" size={24} color="#333" />
+          </TouchableOpacity>
+          <View style={styles.headerTitleContainer}>
+            <View style={styles.addressRow}>
+              <Icon name="navigate" size={14} color="#333" />
+              <Text style={styles.addressText} numberOfLines={1}>
+                {locationAddress || 'Main Address'}
+              </Text>
+              <Icon name="chevron-down" size={14} color="#333" />
+            </View>
+            <Text style={styles.addressDetail} numberOfLines={1}>
+              House, Punnapra North, Alap...
+            </Text>
+          </View>
+          <View style={styles.headerRight}>
+             <View style={styles.incognitoToggle}>
+                <Icon name="person" size={14} color="#888" />
+                <View style={styles.toggleThumbSmall} />
+             </View>
+             <Icon name="ellipsis-vertical" size={20} color="#333" />
+          </View>
+        </View>
+
+        {/* Saved Money Banner (Attached to Header) */}
+        {totalSavings > 0 && (
+          <View style={styles.savedBanner}>
+             <Text style={styles.savedText}>
+                <Text style={styles.greenTextBold}>₹{totalSavings.toFixed(0)} saved!</Text> Save more on every order with One membership
+             </Text>
+          </View>
+        )}
+
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          {/* Cart Content */}
+          <View style={styles.cartSection}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={[styles.unserviceableTitle, !isUnserviceable && { color: '#333' }]}>
+                  {isUnserviceable ? 'Currently unserviceable' : 'Your Items'}
+                </Text>
+                <Text style={styles.itemCountText}>{cartItems.length} items</Text>
+              </View>
+
+              <TouchableOpacity onPress={clearCart}>
+                <Text style={styles.removeAllText}>Remove all <Icon name="close" size={14} /></Text>
+              </TouchableOpacity>
+            </View>
+
+            {cartItems.map((item) => {
+              const status = productStatuses[String(item.id)];
+              const isItemUnavailable = status && (!status.is_active || status.is_stock_out);
+
+              return (
+                <View key={item.id} style={[styles.cartItem, isItemUnavailable && { opacity: 0.5 }]}>
+                  <View style={styles.itemImageContainer}>
+                    {item.image_url ? (
+                      <View style={styles.imageWrapper}>
+                        <Image 
+                          source={{ uri: item.image_url }} 
+                          style={[styles.itemImage, isItemUnavailable && { opacity: 0.5 }]} 
+                        />
+                        {isItemUnavailable && <View style={styles.grayscaleOverlay} />}
+                      </View>
+                    ) : (
+                      <Icon name="fast-food-outline" size={24} color="#ccc" />
+                    )}
+                    {isItemUnavailable && (
+                      <View style={styles.itemOffTag}>
+                        <Text style={styles.itemOffTagText}>OFF</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.itemInfo}>
+                    <Text style={[styles.itemName, isItemUnavailable && { color: '#999' }]}>{item.name}</Text>
+                    <Text style={[styles.itemWeight, isItemUnavailable && { color: '#bbb' }]}>95 g</Text>
+                    {isItemUnavailable && (
+                      <Text style={styles.itemUnavailableMsg}>
+                        {status?.is_stock_out ? 'OUT OF STOCK' : 'CURRENTLY UNAVAILABLE'}
+                      </Text>
+                    )}
+                    <TouchableOpacity style={styles.wishlistBtn} disabled={isItemUnavailable}>
+                      <Icon name="bookmark-outline" size={12} color={isItemUnavailable ? '#ddd' : '#888'} />
+                      <Text style={[styles.wishlistText, isItemUnavailable && { color: '#ddd' }]}>Move to wishlist</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={[styles.quantityContainer, isItemUnavailable && { borderColor: '#eee', opacity: 0.5 }]}>
+                    <TouchableOpacity 
+                      style={styles.qtyBtn} 
+                      onPress={() => updateQuantity(item.id, -1)}
+                    >
+                      <Icon name="remove" size={16} color={isItemUnavailable ? '#ccc' : Colors.primary} />
+                    </TouchableOpacity>
+                    <Text style={[styles.qtyText, isItemUnavailable && { color: '#ccc' }]}>{item.quantity}</Text>
+                    <TouchableOpacity 
+                      style={styles.qtyBtn} 
+                      onPress={() => updateQuantity(item.id, 1)}
+                    >
+                      <Icon name="add" size={16} color={isItemUnavailable ? '#ccc' : Colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.priceContainer}>
+                    <Text style={[styles.itemPrice, isItemUnavailable && { textDecorationLine: 'line-through', color: '#ddd' }]}>
+                      ₹{(item.price * (1 - (item.discount_percent || 0) / 100) * item.quantity).toFixed(0)}
+                    </Text>
+                  </View>
+                </View>
+
+              );
+            })}
+
+          </View>
+
+
+
+          {/* Preferences */}
+          <View style={styles.prefSection}>
+             <View style={styles.prefRow}>
+                <View style={styles.prefTextContainer}>
+                   <Text style={styles.prefTitle}>I don't need a bag! <Icon name="leaf" size={14} color="#4caf50" /></Text>
+                   <Text style={styles.prefDesc}>Take the pledge for a greener future - opt for a no bag delivery!</Text>
+                </View>
+                <View style={styles.toggleTrack}>
+                   <View style={styles.toggleThumb} />
+                </View>
+             </View>
+
+             <View style={styles.tipSection}>
+                <Text style={styles.tipTitle}>DELIVERY TIP <Icon name="information-circle-outline" size={14} color="#888" /></Text>
+                <View style={styles.tipContent}>
+                   <View style={styles.tipTextContainer}>
+                      <Text style={styles.tipDesc}>A small tip, a big gesture! Tip your delivery partner to show your appreciation.</Text>
+                      <View style={styles.tipOptions}>
+                         {[10, 20, 30].map(val => (
+                           <TouchableOpacity 
+                             key={val} 
+                             style={[styles.tipBtn, deliveryTip === val && styles.tipBtnActive]}
+                             onPress={() => setDeliveryTip(deliveryTip === val ? 0 : val)}
+                           >
+                              <Text style={[styles.tipBtnText, deliveryTip === val && styles.tipBtnTextActive]}>₹{val}</Text>
+                              {val === 20 && <View style={styles.mostTipped}><Text style={styles.mostTippedText}>Most tipped</Text></View>}
+                           </TouchableOpacity>
+                         ))}
+                         <TouchableOpacity style={styles.tipBtn}>
+                            <Text style={styles.tipBtnText}>Other</Text>
+                         </TouchableOpacity>
+                      </View>
+
+                   </View>
+                   <Image source={{ uri: 'https://cdn-icons-png.flaticon.com/512/2331/2331827.png' }} style={styles.tipImage} />
+                </View>
+             </View>
+          </View>
+
+          {/* Bill Details */}
+          <View style={styles.billSection}>
+             <Text style={styles.billTitle}>BILL DETAILS</Text>
+             <View style={styles.billContent}>
+                <View style={styles.billRow}>
+                   <Text style={styles.billLabel}>Item Total</Text>
+                   <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.billValue}>₹{subtotal.toFixed(2)}</Text>
+                      {totalSavings > 0 && (
+                        <Text style={[styles.feeSubtext, { color: Colors.primary, fontFamily: Fonts.bold, textDecorationLine: 'line-through' }]}>
+                           ₹{(subtotal + totalSavings).toFixed(2)}
+                        </Text>
+                      )}
+                   </View>
+                </View>
+
+                <View style={styles.billRow}>
+                   <Text style={styles.billLabelDashed}>Handling Fee</Text>
+                   <Text style={styles.billValue}>₹{handlingFee.toFixed(2)}</Text>
+                </View>
+                <View style={styles.billDivider} />
+                <View style={styles.billRow}>
+                   <Text style={styles.billLabel}>Delivery Partner Tip</Text>
+                   {deliveryTip > 0 ? (
+                     <Text style={styles.billValue}>₹{deliveryTip.toFixed(2)}</Text>
+                   ) : (
+                     <TouchableOpacity><Text style={styles.addTipText}>Add a tip</Text></TouchableOpacity>
+                   )}
+                </View>
+                <View style={styles.billDivider} />
+                <View style={styles.billRow}>
+                   <View>
+                      <Text style={styles.billLabelDashed}>Delivery Partner Fee</Text>
+                      {deliveryFee === 0 ? (
+                        <Text style={[styles.feeSubtext, { color: '#4caf50' }]}>Free Delivery applied!</Text>
+                      ) : (
+                        <Text style={styles.feeSubtext}>
+                          Add items worth ₹{Math.max(0, (appSettings?.free_delivery_threshold || 500) - subtotal)} to avail Free Delivery
+                        </Text>
+                      )}
+                   </View>
+
+                   <Text style={styles.billValue}>₹{deliveryFee.toFixed(2)}</Text>
+                </View>
+                <View style={styles.billRow}>
+                   <View style={styles.rowInline}>
+                      <Text style={styles.billLabelDashed}>Late Night Fee</Text>
+                      <Icon name="moon" size={14} color="#673ab7" style={{ marginLeft: 5 }} />
+                   </View>
+                   <Text style={styles.billValue}>₹{lateNightFee.toFixed(2)}</Text>
+                </View>
+                <Text style={styles.feeSubtext}>
+                  {isLateNight 
+                    ? `Applied for orders between ${appSettings?.late_night_start} - ${appSettings?.late_night_end}`
+                    : `No late night fees on orders above ₹${appSettings?.free_delivery_threshold || 199}`
+                  }
+                </Text>
+
+
+                <View style={styles.billDividerSolid} />
+                <View style={styles.totalRow}>
+                   <Text style={styles.totalLabel}>To Pay</Text>
+                   <Text style={styles.totalValue}>₹{total.toFixed(2)}</Text>
+                </View>
+             </View>
+          </View>
+
+          {/* Policy Box */}
+          <View style={styles.policySection}>
+             <Text style={styles.policyText}>
+                <Text style={styles.policyNote}>NOTE:</Text> Orders cannot be cancelled and are non-refundable once packed for delivery.
+             </Text>
+             <TouchableOpacity>
+                <Text style={styles.policyLink}>Read cancellation policy</Text>
+             </TouchableOpacity>
+          </View>
+        </ScrollView>
+
+        {/* Sticky Footer */}
+        <View style={styles.stickyFooter}>
+           <View style={styles.footerHeader}>
+              <View style={styles.footerPriceRow}>
+                 <Text style={styles.footerToPay}>To Pay: </Text>
+                 <Text style={styles.footerTotal}>₹{total.toFixed(0)} </Text>
+                 {totalSavings > 0 && (
+                   <Text style={styles.footerTotalStrike}>₹{(total + totalSavings).toFixed(2)}</Text>
+                 )}
+              </View>
+              <TouchableOpacity>
+                 <Text style={styles.viewDetailedBill}>View Detailed Bill</Text>
+              </TouchableOpacity>
+           </View>
+
+           {isUnserviceable ? (
+             <>
+               <View style={styles.unserviceableBox}>
+                  <View style={styles.errorIconCircle}>
+                     <Icon name="close" size={16} color="#fff" />
+                  </View>
+                  <View style={styles.unserviceableTextContainer}>
+                     <Text style={styles.unserviceableMsgTitle}>
+                       {Object.values(productStatuses).some(s => !s.is_active || s.is_stock_out) 
+                        ? 'Some items are currently unavailable' 
+                        : 'This FreshRun store is currently unserviceable'}
+                     </Text>
+                     <Text style={styles.unserviceableMsgSub}>Please remove unavailable items to proceed</Text>
+                  </View>
+               </View>
+
+               <TouchableOpacity style={styles.retryBtn} onPress={checkServiceability}>
+                  <Text style={styles.retryBtnText}>Retry</Text>
+               </TouchableOpacity>
+             </>
+           ) : (
+             <TouchableOpacity style={styles.checkoutBtn} disabled={checkingServiceability}>
+                <Text style={styles.checkoutBtnText}>
+                  {checkingServiceability ? 'Checking...' : 'Proceed to Checkout'}
+                </Text>
+                <Icon name="chevron-forward" size={18} color="#fff" />
+             </TouchableOpacity>
+           )}
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f7fa',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+  },
+  backButton: {
+    padding: 4,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  addressText: {
+    fontSize: 15,
+    fontFamily: Fonts.black,
+    color: '#333',
+    maxWidth: '80%',
+  },
+  addressDetail: {
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    color: '#888',
+    marginTop: 1,
+  },
+  headerRight: {
+     flexDirection: 'row',
+     alignItems: 'center',
+     gap: 15,
+  },
+  incognitoToggle: {
+     width: 44,
+     height: 24,
+     borderRadius: 12,
+     backgroundColor: '#f0f0f0',
+     flexDirection: 'row',
+     alignItems: 'center',
+     paddingHorizontal: 4,
+     justifyContent: 'space-between',
+  },
+  toggleThumbSmall: {
+     width: 18,
+     height: 18,
+     borderRadius: 9,
+     backgroundColor: '#fff',
+     elevation: 2,
+  },
+  savedBanner: {
+    backgroundColor: '#e6fff0',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  savedText: {
+    fontSize: 13,
+    fontFamily: Fonts.medium,
+    color: '#333',
+  },
+  greenTextBold: {
+    color: '#2e7d32',
+    fontFamily: Fonts.bold,
+  },
+  scrollContent: {
+    paddingBottom: 220, // Space for sticky footer
+  },
+  cartSection: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    margin: 15,
+    padding: 15,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  unserviceableTitle: {
+    fontSize: 18,
+    fontFamily: Fonts.black,
+    color: '#e53935',
+  },
+  itemCountText: {
+    fontSize: 14,
+    fontFamily: Fonts.medium,
+    color: '#888',
+    marginTop: 2,
+  },
+  removeAllText: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: '#666',
+  },
+  cartItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  itemImageContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    backgroundColor: '#f9f9f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  itemImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  imageWrapper: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  grayscaleOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.5)',
+  },
+  itemInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  itemName: {
+    fontSize: 15,
+    fontFamily: Fonts.bold,
+    color: '#333',
+  },
+  itemWeight: {
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    color: '#999',
+    marginTop: 2,
+  },
+  wishlistBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+  },
+  wishlistText: {
+    fontSize: 11,
+    fontFamily: Fonts.bold,
+    color: '#888',
+    textDecorationLine: 'underline',
+  },
+  quantityContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    paddingHorizontal: 4,
+    marginHorizontal: 10,
+    height: 36,
+  },
+  qtyBtn: {
+    padding: 6,
+  },
+  qtyText: {
+    fontSize: 15,
+    fontFamily: Fonts.bold,
+    color: Colors.primary,
+    paddingHorizontal: 8,
+  },
+  priceContainer: {
+    minWidth: 40,
+    alignItems: 'flex-end',
+  },
+  itemPrice: {
+    fontSize: 15,
+    fontFamily: Fonts.bold,
+    color: '#333',
+  },
+
+  prefSection: {
+     marginHorizontal: 15,
+     marginBottom: 15,
+     gap: 15,
+  },
+  prefRow: {
+     backgroundColor: '#fff',
+     borderRadius: 20,
+     padding: 15,
+     flexDirection: 'row',
+     alignItems: 'center',
+     justifyContent: 'space-between',
+  },
+  prefTextContainer: {
+     flex: 1,
+     marginRight: 15,
+  },
+  prefTitle: {
+     fontSize: 15,
+     fontFamily: Fonts.black,
+     color: '#333',
+  },
+  prefDesc: {
+     fontSize: 12,
+     fontFamily: Fonts.regular,
+     color: '#888',
+     marginTop: 4,
+     lineHeight: 16,
+  },
+  toggleTrack: {
+     width: 44,
+     height: 24,
+     backgroundColor: '#eee',
+     borderRadius: 12,
+     padding: 2,
+  },
+  toggleThumb: {
+     width: 20,
+     height: 20,
+     borderRadius: 10,
+     backgroundColor: '#fff',
+     elevation: 2,
+  },
+  tipSection: {
+     backgroundColor: '#fff',
+     borderRadius: 20,
+     padding: 15,
+  },
+  tipTitle: {
+     fontSize: 12,
+     fontFamily: Fonts.black,
+     color: '#999',
+     letterSpacing: 1,
+     marginBottom: 15,
+  },
+  tipContent: {
+     flexDirection: 'row',
+     alignItems: 'flex-start',
+  },
+  tipTextContainer: {
+     flex: 1,
+     marginRight: 10,
+  },
+  tipDesc: {
+     fontSize: 13,
+     fontFamily: Fonts.regular,
+     color: '#666',
+     lineHeight: 18,
+     marginBottom: 15,
+  },
+  tipOptions: {
+     flexDirection: 'row',
+     flexWrap: 'wrap',
+     gap: 8,
+  },
+  tipBtn: {
+     paddingHorizontal: 15,
+     paddingVertical: 8,
+     borderRadius: 10,
+     borderWidth: 1,
+     borderColor: '#eee',
+     alignItems: 'center',
+     minWidth: 60,
+  },
+  tipBtnActive: {
+     borderColor: '#0052cc',
+     backgroundColor: '#fff',
+     borderBottomWidth: 4,
+     borderBottomColor: '#0052cc',
+  },
+  tipBtnText: {
+     fontSize: 14,
+     fontFamily: Fonts.bold,
+     color: '#333',
+  },
+  tipBtnTextActive: {
+     color: '#0052cc',
+  },
+  mostTipped: {
+     position: 'absolute',
+     bottom: -22,
+     backgroundColor: '#0052cc',
+     paddingHorizontal: 6,
+     paddingVertical: 2,
+     borderRadius: 4,
+     width: 70,
+     alignItems: 'center',
+  },
+  mostTippedText: {
+     color: '#fff',
+     fontSize: 8,
+     fontFamily: Fonts.black,
+  },
+  tipImage: {
+     width: 60,
+     height: 60,
+     resizeMode: 'contain',
+  },
+  billSection: {
+     backgroundColor: '#fff',
+     borderRadius: 20,
+     marginHorizontal: 15,
+     marginBottom: 15,
+     padding: 15,
+  },
+  billTitle: {
+     fontSize: 12,
+     fontFamily: Fonts.black,
+     color: '#999',
+     letterSpacing: 1,
+     marginBottom: 15,
+  },
+  billContent: {
+     gap: 12,
+  },
+  billRow: {
+     flexDirection: 'row',
+     justifyContent: 'space-between',
+     alignItems: 'flex-start',
+  },
+  billLabel: {
+     fontSize: 14,
+     fontFamily: Fonts.medium,
+     color: '#333',
+  },
+  billLabelDashed: {
+     fontSize: 14,
+     fontFamily: Fonts.medium,
+     color: '#333',
+     textDecorationLine: 'underline',
+     textDecorationStyle: 'dotted',
+  },
+  billValue: {
+     fontSize: 14,
+     fontFamily: Fonts.bold,
+     color: '#333',
+  },
+  billDivider: {
+     height: 1,
+     backgroundColor: '#f0f0f0',
+     borderStyle: 'dashed',
+     borderWidth: 1,
+     borderColor: '#eee',
+     marginVertical: 4,
+  },
+  billDividerSolid: {
+     height: 1,
+     backgroundColor: '#eee',
+     marginVertical: 4,
+  },
+  addTipText: {
+     fontSize: 14,
+     fontFamily: Fonts.bold,
+     color: '#0052cc',
+  },
+  feeSubtext: {
+     fontSize: 12,
+     fontFamily: Fonts.regular,
+     color: '#888',
+     marginTop: 2,
+     maxWidth: '85%',
+  },
+  rowInline: {
+     flexDirection: 'row',
+     alignItems: 'center',
+  },
+  totalRow: {
+     flexDirection: 'row',
+     justifyContent: 'space-between',
+     alignItems: 'center',
+     marginTop: 5,
+  },
+  totalLabel: {
+     fontSize: 16,
+     fontFamily: Fonts.black,
+     color: '#1a1a1a',
+  },
+  totalValue: {
+     fontSize: 16,
+     fontFamily: Fonts.black,
+     color: '#1a1a1a',
+  },
+  policySection: {
+     backgroundColor: '#fff',
+     borderRadius: 20,
+     marginHorizontal: 15,
+     marginBottom: 20,
+     padding: 15,
+  },
+  policyText: {
+     fontSize: 15,
+     fontFamily: Fonts.medium,
+     color: '#666',
+     lineHeight: 22,
+  },
+  policyNote: {
+     color: '#f44336',
+     fontFamily: Fonts.black,
+  },
+  policyLink: {
+     fontSize: 16,
+     fontFamily: Fonts.black,
+     color: '#0052cc',
+     marginTop: 15,
+     textDecorationLine: 'underline',
+  },
+  stickyFooter: {
+     position: 'absolute',
+     bottom: 0,
+     left: 0,
+     right: 0,
+     backgroundColor: '#fff',
+     paddingHorizontal: 15,
+     paddingTop: 12,
+     paddingBottom: Platform.OS === 'ios' ? 30 : 15,
+     borderTopWidth: 1,
+     borderTopColor: '#f0f0f0',
+     elevation: 20,
+     shadowColor: '#000',
+     shadowOffset: { width: 0, height: -10 },
+     shadowOpacity: 0.05,
+     shadowRadius: 10,
+  },
+  footerHeader: {
+     flexDirection: 'row',
+     justifyContent: 'space-between',
+     alignItems: 'center',
+     marginBottom: 15,
+  },
+  footerPriceRow: {
+     flexDirection: 'row',
+     alignItems: 'center',
+  },
+  footerToPay: {
+     fontSize: 14,
+     fontFamily: Fonts.medium,
+     color: '#333',
+  },
+  footerTotal: {
+     fontSize: 15,
+     fontFamily: Fonts.black,
+     color: '#333',
+  },
+  footerTotalStrike: {
+     fontSize: 12,
+     fontFamily: Fonts.regular,
+     color: '#aaa',
+     textDecorationLine: 'line-through',
+     marginLeft: 5,
+  },
+  viewDetailedBill: {
+     fontSize: 14,
+     fontFamily: Fonts.black,
+     color: '#0052cc',
+  },
+  unserviceableBox: {
+     flexDirection: 'row',
+     alignItems: 'center',
+     marginBottom: 15,
+  },
+  errorIconCircle: {
+     width: 24,
+     height: 24,
+     borderRadius: 12,
+     backgroundColor: '#f44336',
+     alignItems: 'center',
+     justifyContent: 'center',
+  },
+  unserviceableTextContainer: {
+     flex: 1,
+     marginLeft: 12,
+  },
+  unserviceableMsgTitle: {
+     fontSize: 15,
+     fontFamily: Fonts.black,
+     color: '#333',
+  },
+  unserviceableMsgSub: {
+     fontSize: 13,
+     fontFamily: Fonts.regular,
+     color: '#888',
+     marginTop: 2,
+  },
+  retryBtn: {
+     backgroundColor: '#0052cc',
+     borderRadius: 12,
+     height: 54,
+     alignItems: 'center',
+     justifyContent: 'center',
+  },
+  retryBtnText: {
+    color: '#333',
+    fontSize: 16,
+    fontFamily: Fonts.black,
+  },
+  checkoutBtn: {
+    backgroundColor: Colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 15,
+    gap: 8,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  checkoutBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: Fonts.black,
+  },
+  itemOffTag: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 2,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  itemOffTagText: {
+    color: '#fff',
+    fontSize: 8,
+    fontFamily: Fonts.black,
+  },
+  itemUnavailableMsg: {
+    fontSize: 10,
+    fontFamily: Fonts.bold,
+    color: '#e53935',
+    marginTop: 2,
+  }
+});
+
+
+
+export default CartScreen;

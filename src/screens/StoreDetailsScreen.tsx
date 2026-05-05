@@ -11,23 +11,36 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { API_BASE_URL } from '../config/api';
 import { Colors } from '../theme/colors';
+
 import { Fonts } from '../theme/typography';
 
 interface StoreDetailsScreenProps {
   store: any;
   onBack: () => void;
+  addToCart: (product: any) => void;
+  cartItems: any[];
+  updateQuantity: (id: string, delta: number) => void;
 }
 
-const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({ store, onBack }) => {
+
+const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({ 
+  store, 
+  onBack, 
+  addToCart, 
+  cartItems, 
+  updateQuantity 
+}) => {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const baseUrl = 'https://freshrun-backend.onrender.com';
-        const response = await fetch(`${baseUrl}/products?store_id=${store.id}`);
+        const baseUrl = API_BASE_URL;
+        const response = await fetch(`${baseUrl}/products?store_id=${store.id}&include_inactive=true`);
+
         const result = await response.json();
         if (result.success) {
           setProducts(result.data);
@@ -67,15 +80,20 @@ const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({ store, onBack }
           <View style={styles.storeBanner}>
             <View style={styles.imageContainer}>
               {store.image_url ? (
-                <Image source={{ uri: store.image_url }} style={styles.storeImage} />
+                <Image source={{ uri: store.image_url }} style={[styles.storeImage, !store.is_active && { opacity: 0.6 }]} />
               ) : (
                 <View style={styles.placeholderImage}>
                   <Icon name="image-outline" size={50} color="#ccc" />
                 </View>
               )}
+              {!store.is_active && (
+                <View style={styles.unserviceableBadge}>
+                   <Text style={styles.unserviceableText}>CURRENTLY UNSERVICEABLE</Text>
+                </View>
+              )}
             </View>
             <View style={styles.storeContent}>
-              <Text style={styles.storeName}>{store.name}</Text>
+              <Text style={[styles.storeName, !store.is_active && { color: '#999' }]}>{store.name}</Text>
               <Text style={styles.storeDescription}>{store.description || 'Quality products delivered fresh.'}</Text>
               <View style={styles.metaRow}>
                 <View style={styles.metaItem}>
@@ -99,41 +117,88 @@ const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({ store, onBack }
               <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 40 }} />
             ) : products.length > 0 ? (
               products.map((product) => (
-                <View key={product.id} style={styles.productCard}>
+                <View key={product.id} style={[styles.productCard, !product.is_active && styles.productCardInactive]}>
                   <View style={styles.productInfo}>
-                    <Text style={styles.productName}>{product.name}</Text>
+                    <Text style={[styles.productName, !product.is_active && { color: '#999' }]}>{product.name}</Text>
                     <Text style={styles.productDesc} numberOfLines={2}>
                       {product.description || 'Delicious item prepared with fresh ingredients.'}
                     </Text>
                     <View style={styles.priceRow}>
-                      <Text style={styles.price}>₹{product.price}</Text>
+                      <Text style={[styles.price, !product.is_active && { color: '#999' }]}>
+                        ₹{product.discount_percent > 0 
+                          ? (product.price * (1 - product.discount_percent / 100)).toFixed(0) 
+                          : product.price}
+                      </Text>
                       {product.discount_percent > 0 && (
+                        <Text style={styles.originalPrice}>₹{product.price}</Text>
+                      )}
+                      {product.discount_percent > 0 && product.is_active && (
                         <Text style={styles.discount}>-{product.discount_percent}% OFF</Text>
                       )}
                     </View>
+
                     {product.is_stock_out ? (
                       <Text style={styles.stockOut}>Out of Stock</Text>
+                    ) : !product.is_active ? (
+                      <Text style={styles.stockOut}>Currently Unavailable</Text>
                     ) : (
                       <Text style={styles.stockText}>In Stock: {product.stock_quantity}</Text>
                     )}
                   </View>
                   <View style={styles.productImageContainer}>
                     {product.image_url ? (
-                      <Image source={{ uri: product.image_url }} style={styles.productImage} />
+                      <Image source={{ uri: product.image_url }} style={[styles.productImage, !product.is_active && { opacity: 0.5 }]} />
                     ) : (
                       <View style={styles.productPlaceholder}>
                         <Icon name="fast-food-outline" size={30} color="#eee" />
                       </View>
                     )}
-                    {!product.is_stock_out && (
-                      <TouchableOpacity style={styles.addButton}>
-                        <Text style={styles.addButtonText}>ADD</Text>
-                        <Icon name="add" size={16} color={Colors.primary} />
-                      </TouchableOpacity>
+                    {!product.is_active && (
+                      <View style={styles.offTag}>
+                         <Text style={styles.offTagText}>OFF</Text>
+                      </View>
                     )}
+                    {product.is_active && !product.is_stock_out && (
+                      <View style={styles.addButtonContainer}>
+                        {cartItems.find(item => item.id === product.id) ? (
+                          <View style={styles.qtyContainer}>
+                            <TouchableOpacity 
+                              style={styles.qtyBtn} 
+                              onPress={() => updateQuantity(product.id, -1)}
+                            >
+                              <Icon name="remove" size={16} color={Colors.primary} />
+                            </TouchableOpacity>
+                            <Text style={styles.qtyText}>
+                              {cartItems.find(item => item.id === product.id)?.quantity}
+                            </Text>
+                            <TouchableOpacity 
+                              style={styles.qtyBtn} 
+                              onPress={() => updateQuantity(product.id, 1)}
+                            >
+                              <Icon name="add" size={16} color={Colors.primary} />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity 
+                            style={styles.addButton} 
+                            onPress={() => addToCart({ 
+                              ...product, 
+                              store_id: store.id,
+                              handling_fee: store.handling_fee 
+                            })}
+                          >
+                            <Text style={styles.addButtonText}>ADD</Text>
+                            <Icon name="add" size={16} color={Colors.primary} />
+                          </TouchableOpacity>
+
+                        )}
+                      </View>
+                    )}
+
                   </View>
                 </View>
               ))
+
             ) : (
               <View style={styles.emptyContainer}>
                 <Icon name="basket-outline" size={60} color="#eee" />
@@ -289,6 +354,13 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bold,
     color: '#333',
   },
+  originalPrice: {
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    color: '#999',
+    textDecorationLine: 'line-through',
+  },
+
   discount: {
     fontSize: 10,
     fontFamily: Fonts.bold,
@@ -354,6 +426,38 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bold,
     color: Colors.primary,
   },
+  addButtonContainer: {
+    position: 'absolute',
+    bottom: -5,
+  },
+  qtyContainer: {
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    minWidth: 80,
+    height: 32,
+  },
+  qtyBtn: {
+    padding: 4,
+  },
+  qtyText: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: Colors.primary,
+    paddingHorizontal: 10,
+  },
+
   emptyContainer: {
     padding: 60,
     alignItems: 'center',
@@ -365,6 +469,44 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
   },
+  unserviceableBadge: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  unserviceableText: {
+    fontSize: 16,
+    fontFamily: Fonts.black,
+    color: '#333',
+    textAlign: 'center',
+  },
+  productCardInactive: {
+    backgroundColor: '#fafafa',
+    borderColor: '#eee',
+    opacity: 0.8,
+  },
+  offTag: {
+    position: 'absolute',
+    bottom: 0,
+    left: 5,
+    right: 5,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 2,
+    alignItems: 'center',
+    borderRadius: 4,
+  },
+  offTagText: {
+    color: '#fff',
+    fontSize: 9,
+    fontFamily: Fonts.black,
+  },
 });
+
 
 export default StoreDetailsScreen;
