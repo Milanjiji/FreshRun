@@ -13,9 +13,14 @@ import { Fonts } from '../theme/typography';
 interface HomeHeaderProps {
   onAddressPress?: () => void;
   onProfilePress?: () => void;
+  userData?: any;
 }
 
-const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress }) => {
+const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress, userData }) => {
+  const displayAddress = userData?.addressLine 
+    ? `${userData.houseNumber ? userData.houseNumber + ', ' : ''}${userData.addressLine}`
+    : "Set your delivery address";
+
   return (
     <View style={styles.container}>
       {/* Top Section: Stacked Time/Address (Left) and Profile (Right) */}
@@ -24,7 +29,7 @@ const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress 
           <Text style={styles.timeText}>20 mins</Text>
           <TouchableOpacity style={styles.addressContainer} onPress={onAddressPress}>
             <Text style={styles.addressLabel} numberOfLines={1}>
-              To Main Address: <Text style={styles.addressValue}>House, Punnapra North, Al...</Text>
+              To Main Address: <Text style={styles.addressValue}>{displayAddress}</Text>
             </Text>
             <Icon name="chevron-down" size={16} color="#fff" style={styles.chevronIcon} />
           </TouchableOpacity>

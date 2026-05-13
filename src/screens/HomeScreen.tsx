@@ -156,9 +156,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
-              <TouchableOpacity style={styles.micButton}>
-                <Icon name="mic-outline" size={20} color={Colors.primary} />
-              </TouchableOpacity>
             </View>
 
             <TouchableOpacity 
@@ -360,9 +357,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#333',
   },
-  micButton: {
-    padding: 5,
-  },
+
   vegToggle: {
     width: 60,
     height: 48,

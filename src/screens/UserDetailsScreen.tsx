@@ -18,16 +18,26 @@ import { Fonts } from '../theme/typography';
 
 const BACKEND_URL = "https://freshrun-backend.onrender.com";
 
-export default function UserDetailsScreen({ userData, userToken, onSuccess, onBack }: any) {
+export default function UserDetailsScreen({ userData, userToken, onSuccess, onBack, isAddingNewAddress, locationData }: any) {
+  const randomNames = [
+    'My Place', 'Sweet Home', 'Office Space', 'Hangout Spot', 
+    'Favorite Corner', 'The Hub', 'Base Camp', 'Comfort Zone',
+    'Point A', 'The Spot'
+  ];
+
+  const getRandomAddressName = () => {
+    return randomNames[Math.floor(Math.random() * randomNames.length)];
+  };
+
   // Hooks
-  const [fullName, setFullName] = useState(userData?.fullName || '');
-  const [email, setEmail] = useState(userData?.email || '');
-  const [houseNumber, setHouseNumber] = useState(userData?.houseNumber || '');
-  const [addressLine, setAddressLine] = useState(userData?.addressLine || '');
-  const [landmark, setLandmark] = useState(userData?.landmark || '');
-  const [pincode, setPincode] = useState(userData?.pincode || '');
-  const [city, setCity] = useState(userData?.city || '');
-  const [deliveryMessage, setDeliveryMessage] = useState(userData?.deliveryMessage || '');
+  const [fullName, setFullName] = useState(isAddingNewAddress ? '' : (userData?.fullName || ''));
+  const [email, setEmail] = useState(isAddingNewAddress ? '' : (userData?.email || ''));
+  const [houseNumber, setHouseNumber] = useState(isAddingNewAddress ? '' : (userData?.houseNumber || ''));
+  const [addressLine, setAddressLine] = useState(isAddingNewAddress ? '' : (userData?.addressLine || ''));
+  const [landmark, setLandmark] = useState(isAddingNewAddress ? '' : (userData?.landmark || ''));
+  const [pincode, setPincode] = useState(isAddingNewAddress ? '' : (userData?.pincode || ''));
+  const [city, setCity] = useState(isAddingNewAddress ? '' : (userData?.city || ''));
+  const [deliveryMessage, setDeliveryMessage] = useState(isAddingNewAddress ? '' : (userData?.deliveryMessage || ''));
   const [addressType, setAddressType] = useState('Other');
   const [saveAs, setSaveAs] = useState('');
   
@@ -77,25 +87,63 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
 
     setLoading(true);
     try {
-      const response = await axios.put(
-        `${BACKEND_URL}/user/profile`,
-        { 
-          fullName, email, houseNumber, addressLine, landmark,
-          pincode, city, deliveryMessage, addressType, saveAs
-        },
-        {
-          headers: { Authorization: `Bearer ${userToken}` },
-          timeout: 15000,
-        }
-      );
+      if (isAddingNewAddress) {
+        const finalSaveAs = saveAs.trim() || getRandomAddressName();
 
-      if (response.data.success) {
-        const updatedUser = response.data.user;
-        storage.setItem('userData', updatedUser);
-        onSuccess(updatedUser);
+        // 1. Add as a new address entry
+        const addResponse = await axios.post(
+          `${BACKEND_URL}/user/addresses`,
+          { 
+            fullName, email, houseNumber, addressLine, landmark,
+            pincode, city, deliveryMessage, addressType, saveAs: finalSaveAs,
+            latitude: locationData?.latitude,
+            longitude: locationData?.longitude
+          },
+          { headers: { Authorization: `Bearer ${userToken}` } }
+        );
+
+        if (addResponse.data.success) {
+          const newAddressId = addResponse.data.address.id;
+          
+          // 2. Select it to make it the active one
+          const selectResponse = await axios.post(
+            `${BACKEND_URL}/user/addresses/select`,
+            { addressId: newAddressId },
+            { headers: { Authorization: `Bearer ${userToken}` } }
+          );
+
+          if (selectResponse.data.success) {
+            const updatedUser = selectResponse.data.user;
+            storage.setItem('userData', updatedUser);
+            onSuccess(updatedUser);
+          }
+        }
+      } else {
+        const finalSaveAs = saveAs.trim() || (userData?.saveAs) || getRandomAddressName();
+
+        // Standard profile update
+        const response = await axios.put(
+          `${BACKEND_URL}/user/profile`,
+          { 
+            fullName, email, houseNumber, addressLine, landmark,
+            pincode, city, deliveryMessage, addressType, saveAs: finalSaveAs,
+            latitude: locationData?.latitude,
+            longitude: locationData?.longitude
+          },
+          {
+            headers: { Authorization: `Bearer ${userToken}` },
+            timeout: 15000,
+          }
+        );
+
+        if (response.data.success) {
+          const updatedUser = response.data.user;
+          storage.setItem('userData', updatedUser);
+          onSuccess(updatedUser);
+        }
       }
     } catch (error: any) {
-      const message = error.response?.data?.error || 'Failed to update profile';
+      const message = error.response?.data?.error || 'Failed to save address';
       Alert.alert('Error', message);
     } finally {
       setLoading(false);
