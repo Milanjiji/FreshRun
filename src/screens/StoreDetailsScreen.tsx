@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import io from 'socket.io-client';
 import { API_BASE_URL } from '../config/api';
 import { Colors } from '../theme/colors';
 
@@ -34,6 +35,30 @@ const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({
 }) => {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const socketRef = useRef<any>(null);
+
+  useEffect(() => {
+    // Socket connection
+    socketRef.current = io(API_BASE_URL);
+
+    socketRef.current.on('connect', () => {
+      console.log('[StoreDetails] Socket connected');
+      socketRef.current.emit('join_room', `store_${store.id}`);
+    });
+
+    socketRef.current.on('product_updated', (updatedProduct: any) => {
+      console.log('[StoreDetails] Product updated:', updatedProduct.name);
+      setProducts(prevProducts => 
+        prevProducts.map(p => p.id === updatedProduct.id ? updatedProduct : p)
+      );
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [store.id]);
 
   useEffect(() => {
     const fetchProducts = async () => {

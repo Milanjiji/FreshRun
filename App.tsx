@@ -1,13 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  SafeAreaView,
   StyleSheet,
-  Text,
   View,
-  TouchableOpacity,
   Platform,
   PermissionsAndroid,
 } from 'react-native';
+import io from 'socket.io-client';
 import { storage } from './src/utils/storage';
 import LoginScreen from './src/screens/LoginScreen';
 import SplashScreen from './src/screens/SplashScreen';
@@ -97,8 +95,6 @@ function App() {
 
   const lastItemImage = cartItems.length > 0 ? cartItems[cartItems.length - 1].image_url : undefined;
 
-
-
   // Check login and location state on start
   useEffect(() => {
     const checkAppState = async () => {
@@ -161,9 +157,80 @@ function App() {
     checkAppState();
   }, []);
 
-  // Sync active order with the backend every 20 seconds
+  const socketRef = useRef<any>(null);
+
+  // Socket.io initialization
   useEffect(() => {
-    let interval: any;
+    if (userToken && userData?.id) {
+      // Connect to socket server
+      socketRef.current = io(API_BASE_URL);
+
+      socketRef.current.on('connect', () => {
+        console.log('[Socket] Connected to server');
+        if (orderId) {
+          socketRef.current.emit('join_room', `order_${orderId}`);
+        }
+
+        // Join rooms for all stores currently in the cart to get product updates
+        const storeIds = [...new Set(cartItems.map(item => String(item.store_id || (item as any).storeId)).filter(id => id && id !== 'undefined'))];
+        storeIds.forEach(id => {
+          socketRef.current.emit('join_room', `store_${id}`);
+        });
+      });
+
+      socketRef.current.on('product_updated', (updatedProduct: any) => {
+        console.log('[Socket] Product updated:', updatedProduct.id, 'Active:', updatedProduct.is_active);
+        // We trigger a cart items update to force CartScreen to re-check serviceability
+        setCartItems(prev => {
+          const updatedCart = prev.map(item => 
+            item.id === updatedProduct.id ? { ...item, ...updatedProduct } : item
+          );
+          storage.setItem('cartItems', updatedCart);
+          return updatedCart;
+        });
+      });
+
+      socketRef.current.on('store_updated', (updatedStore: any) => {
+        console.log('[Socket] Store updated:', updatedStore.id, 'Active:', updatedStore.is_active);
+        // Force serviceability re-check by updating cartItems (even if just a reference change)
+        setCartItems(prev => [...prev]);
+      });
+
+      socketRef.current.on('order_status_changed', (updatedOrder: any) => {
+        console.log('[Socket] Order status update:', updatedOrder.status);
+        setActiveOrder(updatedOrder);
+        setOrderId(updatedOrder.id);
+        
+        const ts = new Date(updatedOrder.created_at).getTime();
+        setActiveOrderTimestamp(ts);
+        
+        // Update local storage
+        storage.setItem(`activeOrderId_${userData.id}`, updatedOrder.id);
+        storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
+      });
+
+      socketRef.current.on('disconnect', () => {
+        console.log('[Socket] Disconnected');
+      });
+
+      return () => {
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
+        }
+      };
+    }
+  }, [userToken, userData?.id, orderId]);
+
+  // Join order room when orderId changes
+  useEffect(() => {
+    if (socketRef.current && orderId) {
+      socketRef.current.emit('join_room', `order_${orderId}`);
+    }
+  }, [orderId]);
+
+  // Sync active order with the backend on mount/login
+  useEffect(() => {
     if (userToken && userData?.id) {
       const fetchActiveOrder = async () => {
         try {
@@ -188,22 +255,30 @@ function App() {
             storage.removeItem(`activeOrderTimestamp_${userData.id}`);
           }
         } catch (e) {
-          console.error('Error syncing active order:', e);
+          console.error('Error fetching active order:', e);
         }
       };
 
-      // Fetch immediately on login/mount
       fetchActiveOrder();
-
-      // Poll every 20 seconds
-      interval = setInterval(fetchActiveOrder, 20000);
     }
-    return () => clearInterval(interval);
-  }, [userToken, userData]);
+  }, [userToken, userData?.id]);
 
-  const handleLoginSuccess = (token: string, user: any) => {
+  const handleLoginSuccess = async (token: string, user: any) => {
     setUserToken(token);
     setUserData(user);
+    
+    // Check for existing addresses to show selection screen
+    try {
+      const res = await fetch(`${API_BASE_URL}/user/addresses`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && data.addresses && data.addresses.length > 0) {
+        setIsSelectingLocation(true);
+      }
+    } catch (e) {
+      console.error('Error checking addresses after login:', e);
+    }
     
     if (user && user.id) {
       const savedOrderId = storage.getString(`activeOrderId_${user.id}`);
@@ -259,6 +334,36 @@ function App() {
       return <LoginScreen onLoginSuccess={handleLoginSuccess} role="customer" />;
     }
 
+    if (isSelectingLocation) {
+      return (
+        <AddressSelectionScreen 
+          userData={userData}
+          userToken={userToken!}
+          onBack={() => setIsSelectingLocation(false)}
+          onAddressUpdated={(updatedUser) => {
+            setUserData(updatedUser);
+            storage.setItem('userData', updatedUser);
+            
+            // If we just selected an address and we didn't have location yet,
+            // we should set hasLocation to true so it goes to Home.
+            if (!hasLocation) {
+              setHasLocation(true);
+            }
+          }}
+          onAddNewAddress={() => {
+            setIsSelectingLocation(false);
+            setHasLocation(false);
+            setIsAddingNewAddress(true);
+          }}
+          onUseCurrentLocation={() => {
+            setIsSelectingLocation(false);
+            setHasLocation(false);
+            setIsAddingNewAddress(true);
+          }}
+        />
+      );
+    }
+
     if (!hasLocation) {
       return (
         <LocationScreen 
@@ -291,30 +396,6 @@ function App() {
             } else {
               handleBackFromProfile();
             }
-          }}
-        />
-      );
-    }
-
-    if (isSelectingLocation) {
-      return (
-        <AddressSelectionScreen 
-          userData={userData}
-          userToken={userToken!}
-          onBack={() => setIsSelectingLocation(false)}
-          onAddressUpdated={(updatedUser) => {
-            setUserData(updatedUser);
-            storage.setItem('userData', updatedUser);
-          }}
-          onAddNewAddress={() => {
-            setIsSelectingLocation(false);
-            setHasLocation(false);
-            setIsAddingNewAddress(true);
-          }}
-          onUseCurrentLocation={() => {
-            setIsSelectingLocation(false);
-            setHasLocation(false);
-            setIsAddingNewAddress(true);
           }}
         />
       );
@@ -373,7 +454,6 @@ function App() {
         <OrderTrackingScreen 
           orderId={orderId}
           activeOrder={activeOrder}
-          locationData={locationData}
           onHome={() => {
             setShowOrderTracking(false);
             // We NO LONGER clear orderId or cart here so the active order widget can show

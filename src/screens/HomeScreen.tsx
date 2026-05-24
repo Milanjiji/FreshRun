@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Image,
   TextInput,
 } from 'react-native';
+import io from 'socket.io-client';
 import HomeHeader from '../components/HomeHeader';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
@@ -40,6 +41,26 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isVeg, setIsVeg] = useState(false);
+
+  const socketRef = useRef<any>(null);
+
+  useEffect(() => {
+    socketRef.current = io(API_BASE_URL);
+
+    socketRef.current.on('product_updated', (updatedProduct: any) => {
+      setProducts(prev => prev.map(p => p.id === updatedProduct.id ? { ...p, ...updatedProduct } : p));
+    });
+
+    socketRef.current.on('store_updated', (updatedStore: any) => {
+      setStores(prev => prev.map(s => s.id === updatedStore.id ? { ...s, ...updatedStore } : s));
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, []);
 
   const categories = [
     { id: "restaurants", name: "Restaurants", icon: "🍴" },

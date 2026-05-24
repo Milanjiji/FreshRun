@@ -89,7 +89,19 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [
+    cartItems,
+    onFailure,
+    onSuccess,
+    totalAmount,
+    userData?.addressLine,
+    userData?.city,
+    userData?.currentAddressId,
+    userData?.houseNumber,
+    userData?.landmark,
+    userData?.pincode,
+    userToken,
+  ]);
 
   return (
     <SafeAreaView style={styles.safeArea}>

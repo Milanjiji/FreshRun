@@ -16,7 +16,9 @@ import axios from 'axios';
 import { storage } from '../utils/storage';
 import { Fonts } from '../theme/typography';
 
-const BACKEND_URL = "https://freshrun-backend.onrender.com";
+import { API_BASE_URL } from '../config/api';
+
+const BACKEND_URL = API_BASE_URL;
 
 export default function UserDetailsScreen({ userData, userToken, onSuccess, onBack, isAddingNewAddress, locationData }: any) {
   const randomNames = [

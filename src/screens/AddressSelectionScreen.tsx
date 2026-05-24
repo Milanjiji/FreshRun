@@ -19,7 +19,9 @@ import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import axios from 'axios';
 
-const BACKEND_URL = "https://freshrun-backend.onrender.com";
+import { API_BASE_URL } from '../config/api';
+
+const BACKEND_URL = API_BASE_URL;
 
 interface Address {
   id: string;

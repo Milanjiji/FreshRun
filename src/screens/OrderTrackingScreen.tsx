@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
-  Image,
   Modal,
   ScrollView,
 } from 'react-native';
@@ -19,14 +18,12 @@ import LiveMap from '../components/LiveMap';
 interface OrderTrackingScreenProps {
   orderId: string | null;
   activeOrder: any;
-  locationData: { latitude: number; longitude: number } | null;
   onHome: () => void;
 }
 
 const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
   orderId,
   activeOrder,
-  locationData,
   onHome,
 }) => {
   const [storeCoords, setStoreCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -63,15 +60,15 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
     };
 
     fetchStoreLocation();
-  }, [activeOrder?.id, activeOrder?.store_id, activeOrder?.store_lat]);
+  }, [activeOrder?.id, activeOrder?.store_id, activeOrder?.store_lat, activeOrder?.store_lng]);
 
   // Fallback to Calicut ONLY if both order data and manual fetch fail
   const storeLat = storeCoords?.lat || 11.2588;
   const storeLng = storeCoords?.lng || 75.7804;
   
-  // Prefer the saved delivery_address coordinates from the order, then the app's current locationData, then fallback
-  const userLat = activeOrder?.delivery_address?.latitude || locationData?.latitude || 11.2588;
-  const userLng = activeOrder?.delivery_address?.longitude || locationData?.longitude || 75.7804;
+  // Delivery coordinates come from the order/address relation, not the device location.
+  const userLat = activeOrder?.delivery_address?.latitude || activeOrder?.user_lat || 11.2588;
+  const userLng = activeOrder?.delivery_address?.longitude || activeOrder?.user_lng || 75.7804;
 
   useEffect(() => {
     console.log("--- OrderTrackingScreen Debug ---");
@@ -321,11 +318,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.medium,
     color: '#888',
   },
-  timeTagSub: {
-    fontSize: 12,
-    fontFamily: Fonts.medium,
-    color: '#888',
-  },
   bottomSheet: {
     flex: 0.35,
     backgroundColor: '#fff',
@@ -418,7 +410,7 @@ const styles = StyleSheet.create({
   // Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'transparent',
     justifyContent: 'flex-end',
   },
   modalContent: {
