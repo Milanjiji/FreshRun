@@ -6,7 +6,14 @@ import {
   PermissionsAndroid,
 } from 'react-native';
 import io from 'socket.io-client';
+import messaging from '@react-native-firebase/messaging';
 import { storage } from './src/utils/storage';
+import { 
+  requestNotificationPermission, 
+  createNotificationChannels, 
+  registerFCMToken, 
+  setupFCMListeners 
+} from './src/utils/notifications';
 import LoginScreen from './src/screens/LoginScreen';
 import SplashScreen from './src/screens/SplashScreen';
 import LocationScreen from './src/screens/LocationScreen';
@@ -47,6 +54,48 @@ function App() {
   const [activeOrder, setActiveOrder] = useState<any>(null);
   const [activeOrderTimestamp, setActiveOrderTimestamp] = useState<number | null>(null);
   const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<number>(0);
+  const [checkoutDeliveryFee, setCheckoutDeliveryFee] = useState<number>(0);
+  const [checkoutDeliveryTip, setCheckoutDeliveryTip] = useState<number>(0);
+
+  // FCM Setup
+  useEffect(() => {
+    if (userToken && userData?.id) {
+      const initFCM = async () => {
+        try {
+          const hasPermission = await requestNotificationPermission();
+          if (hasPermission) {
+            await createNotificationChannels();
+            const fcmToken = await messaging().getToken();
+            await registerFCMToken(userToken, fcmToken);
+            
+            // Listen for token refresh
+            const unsubscribeTokenRefresh = messaging().onTokenRefresh(async newToken => {
+              await registerFCMToken(userToken, newToken);
+            });
+
+            const cleanupListeners = setupFCMListeners((data) => {
+              if (data?.orderId) {
+                setOrderId(data.orderId);
+                setShowOrderTracking(true);
+              }
+            });
+
+            return () => {
+              unsubscribeTokenRefresh();
+              cleanupListeners();
+            };
+          }
+        } catch (error) {
+          console.error('[FCM] Init error:', error);
+        }
+      };
+
+      const cleanup = initFCM();
+      return () => {
+        if (typeof cleanup === 'function') (cleanup as any)();
+      };
+    }
+  }, [userToken, userData?.id]);
 
   // Cart logic
   const addToCart = (product: any) => {
@@ -199,6 +248,28 @@ function App() {
       socketRef.current.on('order_status_changed', (updatedOrder: any) => {
         console.log('[Socket] Order status update:', updatedOrder.status);
         setActiveOrder(updatedOrder);
+
+        if (updatedOrder?.status === 'delivered' || updatedOrder?.is_completed) {
+          setOrderId(null);
+          setActiveOrderTimestamp(null);
+          storage.removeItem(`activeOrderId_${userData.id}`);
+          storage.removeItem(`activeOrderTimestamp_${userData.id}`);
+          setShowOrderTracking(false);
+          setShowOrderDeclined(false);
+          return;
+        }
+
+        if (updatedOrder?.status === 'declined') {
+          setShowOrderTracking(false);
+          setShowOrderDeclined(true);
+          setOrderId(updatedOrder.id);
+          const ts = new Date(updatedOrder.created_at).getTime();
+          setActiveOrderTimestamp(ts);
+          storage.setItem(`activeOrderId_${userData.id}`, updatedOrder.id);
+          storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
+          return;
+        }
+
         setOrderId(updatedOrder.id);
         
         const ts = new Date(updatedOrder.created_at).getTime();
@@ -240,6 +311,26 @@ function App() {
           const data = await res.json();
           if (data.success && data.order) {
             setActiveOrder(data.order);
+
+            if (data.order?.status === 'delivered' || data.order?.is_completed) {
+              setOrderId(null);
+              setActiveOrderTimestamp(null);
+              storage.removeItem(`activeOrderId_${userData.id}`);
+              storage.removeItem(`activeOrderTimestamp_${userData.id}`);
+              setShowOrderDeclined(false);
+              return;
+            }
+
+            if (data.order?.status === 'declined') {
+              setOrderId(data.order.id);
+              const ts = new Date(data.order.created_at).getTime();
+              setActiveOrderTimestamp(ts);
+              setShowOrderDeclined(true);
+              storage.setItem(`activeOrderId_${userData.id}`, data.order.id);
+              storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
+              return;
+            }
+
             setOrderId(data.order.id);
             const ts = new Date(data.order.created_at).getTime();
             setActiveOrderTimestamp(ts);
@@ -339,7 +430,12 @@ function App() {
         <AddressSelectionScreen 
           userData={userData}
           userToken={userToken!}
-          onBack={() => setIsSelectingLocation(false)}
+          onBack={() => {
+            setIsSelectingLocation(false);
+            if (userData?.currentAddressId) {
+              setHasLocation(true);
+            }
+          }}
           onAddressUpdated={(updatedUser) => {
             setUserData(updatedUser);
             storage.setItem('userData', updatedUser);
@@ -420,10 +516,20 @@ function App() {
         <OrderDeclinedScreen 
           onBack={async () => {
             setShowOrderDeclined(false);
-            if (orderId && userToken) {
+            // Clear local state immediately to ensure smooth UX
+            const currentOrderId = orderId;
+            setActiveOrder(null);
+            setOrderId(null);
+            setActiveOrderTimestamp(null);
+            if (userData) {
+              storage.removeItem(`activeOrderId_${userData.id}`);
+              storage.removeItem(`activeOrderTimestamp_${userData.id}`);
+            }
+
+            if (currentOrderId && userToken) {
               try {
-                // Acknowledge decline by marking it completed
-                await fetch(`${API_BASE_URL}/orders/${orderId}`, {
+                console.log('[App] Sending PATCH to mark declined order completed:', currentOrderId);
+                const response = await fetch(`${API_BASE_URL}/orders/${currentOrderId}`, {
                   method: 'PATCH',
                   headers: { 
                     'Content-Type': 'application/json',
@@ -431,15 +537,8 @@ function App() {
                   },
                   body: JSON.stringify({ is_completed: true })
                 });
-                
-                // Clear local state
-                setActiveOrder(null);
-                setOrderId(null);
-                setActiveOrderTimestamp(null);
-                if (userData) {
-                  storage.removeItem(`activeOrderId_${userData.id}`);
-                  storage.removeItem(`activeOrderTimestamp_${userData.id}`);
-                }
+                const resData = await response.json();
+                console.log('[App] Mark completed response:', JSON.stringify(resData, null, 2));
               } catch (e) {
                 console.error("Failed to acknowledge declined order", e);
               }
@@ -467,18 +566,24 @@ function App() {
         <OrderConfirmingScreen
           cartItems={cartItems}
           totalAmount={checkoutTotalAmount}
+          deliveryFee={checkoutDeliveryFee}
+          deliveryTip={checkoutDeliveryTip}
           userData={userData}
+          locationData={locationData}
           userToken={userToken}
-          onSuccess={(id) => {
+          onSuccess={(id, order) => {
+            console.log('\n✅ [OrderPlacement] STEP 5: Order successfully completed and stored in local state. ID:', id);
+            console.log('Order Details:', JSON.stringify(order, null, 2));
             setOrderId(id);
+            setActiveOrder(order);
             const ts = Date.now();
             setActiveOrderTimestamp(ts);
-            
+
             if (userData && userData.id) {
               storage.setItem(`activeOrderId_${userData.id}`, id);
               storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
             }
-            
+
             setShowOrderConfirming(false);
             setShowOrderTracking(true);
             clearCart();
@@ -516,8 +621,10 @@ function App() {
           updateQuantity={updateQuantity}
           clearCart={clearCart}
           locationAddress={userData?.address?.line1}
-          onProceedToCheckout={(total) => {
+          onProceedToCheckout={(total, deliveryFee, deliveryTip) => {
             setCheckoutTotalAmount(total);
+            setCheckoutDeliveryFee(deliveryFee);
+            setCheckoutDeliveryTip(deliveryTip);
             setShowPayment(true);
           }}
         />
@@ -552,7 +659,7 @@ function App() {
         />
         
         {/* Active Order Widget (Floats globally if order is active and we are not on the tracking screen) */}
-        {orderId && !showOrderTracking && !showOrderDeclined && (
+        {orderId && activeOrder && !showOrderTracking && !showOrderDeclined && activeOrder?.status !== 'delivered' && activeOrder?.status !== 'declined' && !activeOrder?.is_completed && (
           <ActiveOrderWidget 
             onPress={() => {
               if (activeOrder?.status === 'declined') {

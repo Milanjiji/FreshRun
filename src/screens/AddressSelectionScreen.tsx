@@ -34,6 +34,8 @@ interface Address {
   addressType: string;
   saveAs: string;
   isCurrent?: boolean;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface AddressSelectionScreenProps {
@@ -237,8 +239,8 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
         styles.addressItem,
         activeMenuId === item.id && { zIndex: 999 }
       ]}
-      onPress={() => !isSelected && handleSelectAddress(item.id)}
-      disabled={isSelected || !!selectingId}
+      onPress={() => isSelected ? onBack() : handleSelectAddress(item.id)}
+      disabled={!!selectingId}
     >
       <View style={styles.iconContainer}>
         <Icon name={getAddressIcon(item.addressType)} size={20} color="#333" />

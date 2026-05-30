@@ -11,6 +11,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import axios from 'axios';
 import { storage } from '../utils/storage';
@@ -18,6 +19,7 @@ import { Fonts } from '../theme/typography';
 
 import { API_BASE_URL } from '../config/api';
 
+const PRIVACY_POLICY_URL = 'https://freshrun-admin.vercel.app/privacy';
 const BACKEND_URL = API_BASE_URL;
 
 export default function UserDetailsScreen({ userData, userToken, onSuccess, onBack, isAddingNewAddress, locationData }: any) {
@@ -295,6 +297,13 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
           />
         </View>
 
+        <View style={styles.privacyContainer}>
+          <Text style={styles.privacyText}>By saving, you agree to our </Text>
+          <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+            <Text style={styles.privacyLink}>Privacy Policy</Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity
           style={[styles.saveButton, !isFormValid ? styles.disabledButton : styles.activeSaveButton]}
           onPress={handleSave}
@@ -360,7 +369,26 @@ const styles = StyleSheet.create({
   areaValue: { fontSize: 14, fontFamily: Fonts.medium, color: '#666', fontWeight: '500' },
   changeButton: { padding: 5 },
   changeLink: { fontSize: 12, fontFamily: Fonts.bold, color: '#0052FF', fontWeight: 'bold' },
-  saveButton: { height: 60, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginTop: 30 },
+  privacyContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+    paddingHorizontal: 10,
+    flexWrap: 'wrap',
+  },
+  privacyText: {
+    fontSize: 13,
+    fontFamily: Fonts.regular,
+    color: '#666',
+  },
+  privacyLink: {
+    fontSize: 13,
+    fontFamily: Fonts.bold,
+    color: '#0052FF',
+    textDecorationLine: 'underline',
+  },
+  saveButton: { height: 60, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginTop: 15 },
   saveButtonText: { fontSize: 16, fontFamily: Fonts.bold, fontWeight: 'bold', color: '#fff' },
   disabledButton: { backgroundColor: '#D1D5DB' },
   activeSaveButton: { backgroundColor: '#000' },

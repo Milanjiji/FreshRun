@@ -16,16 +16,22 @@ import { API_BASE_URL } from '../config/api';
 interface OrderConfirmingScreenProps {
   cartItems: any[];
   totalAmount: number;
+  deliveryFee: number;
+  deliveryTip: number;
   userData: any;
+  locationData?: { latitude: number; longitude: number } | null;
   userToken: string | null;
-  onSuccess: (orderId: string) => void;
+  onSuccess: (orderId: string, order: any) => void;
   onFailure: () => void;
 }
 
 const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
   cartItems,
   totalAmount,
+  deliveryFee,
+  deliveryTip,
   userData,
+  locationData,
   userToken,
   onSuccess,
   onFailure,
@@ -43,15 +49,22 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
           store_id: storeId,
           items: cartItems,
           total_amount: totalAmount,
-          subtotal: totalAmount,
+          subtotal: totalAmount - deliveryFee - deliveryTip,
+          delivery_fee: deliveryFee,
+          delivery_tip: deliveryTip,
           delivery_address: {
             line1: `${userData?.houseNumber ? userData.houseNumber + ', ' : ''}${userData?.addressLine || ''}`,
             line2: userData?.landmark || '',
             city: userData?.city || '',
             pincode: userData?.pincode || '',
+            latitude: userData?.currentAddressLatitude ?? locationData?.latitude ?? null,
+            longitude: userData?.currentAddressLongitude ?? locationData?.longitude ?? null,
           },
           address_id: userData?.currentAddressId,
         };
+
+        console.log('\n📝 [OrderPlacement] STEP 1: Sending order payload to backend:');
+        console.log(JSON.stringify(payload, null, 2));
 
         const response = await fetch(`${API_BASE_URL}/orders`, {
           method: 'POST',
@@ -63,13 +76,15 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
         });
 
         const data = await response.json();
+        console.log('\n📥 [OrderPlacement] STEP 4: Received order placement response:');
+        console.log(JSON.stringify(data, null, 2));
 
         if (!isMounted) return;
 
         if (data.success && data.order) {
           setSuccess(true);
           setTimeout(() => {
-            if (isMounted) onSuccess(data.order.id);
+            if (isMounted) onSuccess(data.order.id, data.order);
           }, 1500);
         } else {
           Alert.alert('Error', data.error || 'Failed to place order');
@@ -77,7 +92,7 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
         }
       } catch (error) {
         if (!isMounted) return;
-        console.error('Order Error:', error);
+        console.error('❌ [OrderPlacement] Error placing order:', error);
         Alert.alert('Error', 'Something went wrong while placing the order.');
         onFailure();
       }
@@ -97,9 +112,13 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
     userData?.addressLine,
     userData?.city,
     userData?.currentAddressId,
+    userData?.currentAddressLatitude,
+    userData?.currentAddressLongitude,
     userData?.houseNumber,
     userData?.landmark,
     userData?.pincode,
+    locationData?.latitude,
+    locationData?.longitude,
     userToken,
   ]);
 

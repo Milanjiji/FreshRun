@@ -85,6 +85,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
   const [confirm, setConfirm] =
     useState<FirebaseAuthTypes.ConfirmationResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
 
   // STEP 1: Send OTP
   const signInWithPhoneNumber = async () => {
@@ -191,8 +192,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
         >
           <View style={styles.topContainer}>
             <View style={styles.header}>
-              <PageTitle>Welcome Back!</PageTitle>
-              <PageSubtitle>Sign in to access your account.</PageSubtitle>
+              <PageTitle>{isSignUp ? "Create Account" : "Welcome Back!"}</PageTitle>
+              <PageSubtitle>
+                {isSignUp ? "Sign up to start ordering delicious food!" : "Sign in to access your account."}
+              </PageSubtitle>
             </View>
 
             <View style={styles.inputSection}>
@@ -236,7 +239,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
             </View>
 
             <PrimaryButton 
-              title={!confirm ? "Sign in" : "Verify OTP"}
+              title={!confirm ? (isSignUp ? "Sign up" : "Sign in") : "Verify OTP"}
               onPress={!confirm ? signInWithPhoneNumber : confirmCode}
               loading={loading}
             />
@@ -251,9 +254,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Don't have an account? </Text>
-            <TouchableOpacity>
-              <Text style={styles.linkText}>Sign up now</Text>
+            <Text style={styles.footerText}>
+              {isSignUp ? "Already have an account? " : "Don't have an account? "}
+            </Text>
+            <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)}>
+              <Text style={styles.linkText}>
+                {isSignUp ? "Sign in now" : "Sign up now"}
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

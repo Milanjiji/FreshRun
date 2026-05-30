@@ -9,10 +9,13 @@ import {
   StatusBar,
   Modal,
   TouchableWithoutFeedback,
+  Linking,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
+
+const PRIVACY_POLICY_URL = 'https://freshrun-admin.vercel.app/privacy';
 
 interface AccountScreenProps {
   userData: any;
@@ -32,6 +35,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
   const menuItems = [
     { id: '1', title: 'Account Statement', icon: 'document-outline' },
     { id: '5', title: 'Saved by Me', icon: 'bookmark-outline' },
+    { id: '6', title: 'Privacy Policy', icon: 'shield-checkmark-outline' },
   ];
 
   const quickLinks = [
@@ -131,6 +135,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
                 styles.menuItem, 
                 index === menuItems.length - 1 ? styles.lastMenuItem : null
               ]}
+              onPress={item.id === '6' ? () => Linking.openURL(PRIVACY_POLICY_URL) : undefined}
             >
               <View style={styles.menuItemLeft}>
                 <Icon name={item.icon} size={22} color="#333" />

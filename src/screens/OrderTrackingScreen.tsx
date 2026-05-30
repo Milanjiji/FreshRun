@@ -31,12 +31,12 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
 
   useEffect(() => {
     const fetchStoreLocation = async () => {
-      // 1. Check if we already have it from backend join
-      if (activeOrder?.store_lat && activeOrder?.store_lng) {
-        setStoreCoords({
-          lat: parseFloat(activeOrder.store_lat),
-          lng: parseFloat(activeOrder.store_lng)
-        });
+      const lat = activeOrder?.store_lat ? parseFloat(activeOrder.store_lat) : null;
+      const lng = activeOrder?.store_lng ? parseFloat(activeOrder.store_lng) : null;
+
+      // 1. Check if we already have both coordinates from the backend join
+      if (lat !== null && lng !== null) {
+        setStoreCoords({ lat, lng });
         return;
       }
 
@@ -67,8 +67,16 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
   const storeLng = storeCoords?.lng || 75.7804;
   
   // Delivery coordinates come from the order/address relation, not the device location.
-  const userLat = activeOrder?.delivery_address?.latitude || activeOrder?.user_lat || 11.2588;
-  const userLng = activeOrder?.delivery_address?.longitude || activeOrder?.user_lng || 75.7804;
+  const userLat =
+    activeOrder?.delivery_address?.latitude ||
+    activeOrder?.delivery_address?.lat ||
+    activeOrder?.user_lat ||
+    11.2588;
+  const userLng =
+    activeOrder?.delivery_address?.longitude ||
+    activeOrder?.delivery_address?.lng ||
+    activeOrder?.user_lng ||
+    75.7804;
 
   useEffect(() => {
     console.log("--- OrderTrackingScreen Debug ---");

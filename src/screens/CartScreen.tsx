@@ -32,7 +32,7 @@ interface CartScreenProps {
   updateQuantity: (id: string, delta: number) => void;
   clearCart: () => void;
   locationAddress?: string;
-  onProceedToCheckout?: (totalAmount: number) => void;
+  onProceedToCheckout?: (totalAmount: number, deliveryFee: number, deliveryTip: number) => void;
 }
 
 const CartScreen: React.FC<CartScreenProps> = ({ 
@@ -506,7 +506,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
              <TouchableOpacity 
                style={styles.checkoutBtn} 
                disabled={checkingServiceability}
-               onPress={() => onProceedToCheckout && onProceedToCheckout(total)}
+               onPress={() => onProceedToCheckout && onProceedToCheckout(total, deliveryFee, deliveryTip)}
              >
                 <Text style={styles.checkoutBtnText}>
                   {checkingServiceability ? 'Checking...' : 'Proceed to Checkout'}
