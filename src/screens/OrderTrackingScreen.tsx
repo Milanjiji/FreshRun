@@ -9,6 +9,9 @@ import {
   Modal,
   ScrollView,
   ActivityIndicator,
+  Dimensions,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import io from 'socket.io-client';
@@ -16,6 +19,8 @@ import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { API_BASE_URL } from '../config/api';
 import LiveMap from '../components/LiveMap';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface OrderTrackingScreenProps {
   orderId: string | null;
@@ -48,6 +53,28 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
   const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const socketRef = useRef<any>(null);
+
+  // DRAGGABLE BOTTOM SHEET LOGIC
+  const INITIAL_SHEET_HEIGHT = SCREEN_HEIGHT * 0.3;
+  const sheetHeight = useRef(new Animated.Value(INITIAL_SHEET_HEIGHT)).current;
+  const lastSheetHeight = useRef(INITIAL_SHEET_HEIGHT);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (evt, gestureState) => {
+        const newHeight = lastSheetHeight.current - gestureState.dy;
+        // Limit height between 15% and 85% of screen
+        if (newHeight > SCREEN_HEIGHT * 0.15 && newHeight < SCREEN_HEIGHT * 0.85) {
+          sheetHeight.setValue(newHeight);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        // Sync raw value
+        lastSheetHeight.current = (sheetHeight as any)._value;
+      },
+    })
+  ).current;
 
   useEffect(() => {
     if (activeOrder?.id === orderId) {
@@ -143,16 +170,13 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
       const lat = parseCoordinate(trackedOrder?.store_lat);
       const lng = parseCoordinate(trackedOrder?.store_lng);
 
-      // 1. Check if we already have both coordinates from the backend join
       if (lat !== null && lng !== null) {
         setStoreCoords({ lat, lng });
         return;
       }
 
-      // 2. If missing, fetch from store details endpoint (Client-side fallback)
       if (trackedOrder?.store_id) {
         try {
-          console.log(`[OrderTracking] Fetching missing store location for ID: ${trackedOrder.store_id}`);
           const response = await fetch(`${API_BASE_URL}/stores/${trackedOrder.store_id}`);
           const data = await response.json();
           if (data.success && data.data) {
@@ -174,7 +198,6 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
   const storeLat = storeCoords?.lat ?? null;
   const storeLng = storeCoords?.lng ?? null;
   
-  // Delivery coordinates come from the order/address relation, not the device location.
   const userLat = parseCoordinate(
     trackedOrder?.delivery_address?.latitude ??
     trackedOrder?.delivery_address?.lat ??
@@ -190,15 +213,6 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
     storeLng !== null &&
     userLat !== null &&
     userLng !== null;
-
-  useEffect(() => {
-    console.log("--- OrderTrackingScreen Debug ---");
-    console.log("Tracked Order ID:", trackedOrder?.id);
-    console.log("Final Store Lat/Lng:", storeLat, storeLng);
-    console.log("User Lat/Lng:", userLat, userLng);
-    console.log("Backend provided store_lat:", trackedOrder?.store_lat);
-    console.log("--------------------------------");
-  }, [storeLat, storeLng, trackedOrder, userLat, userLng]);
 
   const renderDetailsModal = () => (
     <Modal
@@ -217,7 +231,6 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScroll}>
-            {/* Store Details */}
             <View style={styles.detailSection}>
               <Text style={styles.sectionHeading}>Store Info</Text>
               <View style={styles.infoCard}>
@@ -229,7 +242,6 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
               </View>
             </View>
 
-            {/* Delivery Partner */}
             <View style={styles.detailSection}>
               <Text style={styles.sectionHeading}>Delivery Partner</Text>
               <View style={styles.infoCard}>
@@ -246,7 +258,6 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
               </View>
             </View>
 
-            {/* Bill Details */}
             <View style={styles.detailSection}>
               <Text style={styles.sectionHeading}>Bill Details</Text>
               <View style={styles.billCard}>
@@ -281,7 +292,6 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
               </View>
             </View>
 
-            {/* Delivery Address */}
             <View style={styles.detailSection}>
               <Text style={styles.sectionHeading}>Delivery At</Text>
               <View style={styles.infoCard}>
@@ -298,7 +308,6 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
     </Modal>
   );
 
-  // Helper to format status display
   const getStatusDisplay = () => {
     const status = trackedOrder?.status;
     if (!status || status === 'pending') return 'Confirmed';
@@ -310,13 +319,14 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       {renderDetailsModal()}
       
-      {/* Interactive Map */}
+      {/* Interactive Map (Flex: 1 fills remaining area) */}
       <View style={styles.mapContainer}>
         {hasMapCoordinates ? (
           <LiveMap
             storeLocation={{ lat: storeLat, lng: storeLng }}
             userLocation={{ lat: userLat, lng: userLng }}
             driverLocation={driverCoords}
+            orderStatus={trackedOrder?.status}
           />
         ) : (
           <View style={styles.mapErrorContainer}>
@@ -333,63 +343,65 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
           </View>
         )}
         
-        {/* Header Overlay */}
         <SafeAreaView style={styles.headerOverlay}>
           <TouchableOpacity onPress={onHome} style={styles.backButton}>
             <Icon name="close" size={24} color="#333" />
           </TouchableOpacity>
         </SafeAreaView>
 
-        {/* Floating Status Tag */}
         <View style={styles.timeTag}>
           <Text style={styles.timeTagText}>{getStatusDisplay()}</Text>
           <Text style={styles.timeTagSub}>Order Status</Text>
         </View>
       </View>
 
-      {/* Bottom Sheet Details */}
-      <View style={styles.bottomSheet}>
-        <View style={styles.dragHandle} />
-        
-        <Text style={styles.statusTitle}>Order Confirmed</Text>
-        <Text style={styles.statusDesc}>Your order has been received by the store and is currently being processed.</Text>
-        
-        <View style={styles.trackingSteps}>
-          {/* Stage 1: Order Confirmed */}
-          <View style={styles.step}>
-             <View style={[styles.stepDot, styles.stepDotActive]} />
-             <Text style={styles.stepTextActive}>Confirmed</Text>
-          </View>
-          <View style={[styles.stepLine, trackedOrder?.is_packed && styles.stepDotActive]} />
-          
-          {/* Stage 2: Order Packed */}
-          <View style={styles.step}>
-             <View style={[styles.stepDot, trackedOrder?.is_packed && styles.stepDotActive]} />
-             <Text style={trackedOrder?.is_packed ? styles.stepTextActive : styles.stepText}>Packed</Text>
-          </View>
-          <View style={[styles.stepLine, trackedOrder?.delivery_boy_opted && styles.stepDotActive]} />
-          
-          {/* Stage 3: Delivery Boy Assigned */}
-          <View style={styles.step}>
-             <View style={[styles.stepDot, trackedOrder?.delivery_boy_opted && styles.stepDotActive]} />
-             <Text style={trackedOrder?.delivery_boy_opted ? styles.stepTextActive : styles.stepText}>Assigned</Text>
-          </View>
-          <View style={[styles.stepLine, trackedOrder?.is_given_to_delivery_boy && styles.stepDotActive]} />
-          
-          {/* Stage 4: Delivered */}
-          <View style={styles.step}>
-             <View style={[styles.stepDot, trackedOrder?.is_completed && styles.stepDotActive]} />
-             <Text style={trackedOrder?.is_completed ? styles.stepTextActive : styles.stepText}>Delivered</Text>
-          </View>
+      {/* Bottom Sheet Details (Draggable) */}
+      <Animated.View style={[styles.bottomSheet, { height: sheetHeight }]}>
+        <View style={styles.dragHandleContainer} {...panResponder.panHandlers}>
+           <View style={styles.dragHandle} />
         </View>
         
-        <View style={styles.orderInfoCard}>
-          <Text style={styles.orderIdText}>Order #{orderId?.split('-')[0].toUpperCase()}</Text>
-          <TouchableOpacity onPress={() => setShowDetails(true)}>
-             <Text style={styles.viewDetailsText}>View details</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 20 }}
+        >
+          <Text style={styles.statusTitle}>Order Tracking</Text>
+          <Text style={styles.statusDesc}>Track your order status and delivery partner live on the map.</Text>
+          
+          <View style={styles.trackingSteps}>
+            <View style={styles.step}>
+               <View style={[styles.stepDot, styles.stepDotActive]} />
+               <Text style={styles.stepTextActive}>Confirmed</Text>
+            </View>
+            <View style={[styles.stepLine, trackedOrder?.is_packed && styles.stepDotActive]} />
+            
+            <View style={styles.step}>
+               <View style={[styles.stepDot, trackedOrder?.is_packed && styles.stepDotActive]} />
+               <Text style={trackedOrder?.is_packed ? styles.stepTextActive : styles.stepText}>Packed</Text>
+            </View>
+            <View style={[styles.stepLine, trackedOrder?.delivery_boy_opted && styles.stepDotActive]} />
+            
+            <View style={styles.step}>
+               <View style={[styles.stepDot, trackedOrder?.delivery_boy_opted && styles.stepDotActive]} />
+               <Text style={trackedOrder?.delivery_boy_opted ? styles.stepTextActive : styles.stepText}>Assigned</Text>
+            </View>
+            <View style={[styles.stepLine, trackedOrder?.is_given_to_delivery_boy && styles.stepDotActive]} />
+            
+            <View style={styles.step}>
+               <View style={[styles.stepDot, trackedOrder?.is_completed && styles.stepDotActive]} />
+               <Text style={trackedOrder?.is_completed ? styles.stepTextActive : styles.stepText}>Delivered</Text>
+            </View>
+          </View>
+          
+          <View style={styles.orderInfoCard}>
+            <Text style={styles.orderIdText}>Order #{orderId?.split('-')[0].toUpperCase()}</Text>
+            <TouchableOpacity onPress={() => setShowDetails(true)}>
+               <Text style={styles.viewDetailsText}>View details</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </Animated.View>
     </View>
   );
 };
@@ -397,7 +409,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f7fa' },
   mapContainer: {
-    flex: 0.65,
+    flex: 1,
     backgroundColor: '#e0e0e0',
     position: 'relative',
   },
@@ -415,12 +427,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 10,
     textAlign: 'center',
-  },
-  mapImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-    opacity: 0.8,
   },
   headerOverlay: {
     position: 'absolute',
@@ -471,26 +477,27 @@ const styles = StyleSheet.create({
     color: '#888',
   },
   bottomSheet: {
-    flex: 0.35,
     backgroundColor: '#fff',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     paddingHorizontal: 20,
-    paddingTop: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -5 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 20,
-    marginTop: -20,
+  },
+  dragHandleContainer: {
+    width: '100%',
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   dragHandle: {
     width: 40,
     height: 5,
     backgroundColor: '#e0e0e0',
     borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 20,
   },
   statusTitle: {
     fontSize: 20,
@@ -559,7 +566,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bold,
     color: Colors.primary,
   },
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -668,13 +674,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: Fonts.black,
     color: Colors.primary,
-  },
-  paymentMethod: {
-    fontSize: 11,
-    fontFamily: Fonts.medium,
-    color: Colors.success,
-    marginTop: 12,
-    textAlign: 'center',
   },
 });
 
