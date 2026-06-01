@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,27 +10,58 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Linking,
+  ActivityIndicator,
+  FlatList,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
+import { API_BASE_URL } from '../config/api';
 
 const PRIVACY_POLICY_URL = 'https://freshrun-admin.vercel.app/privacy';
 
 interface AccountScreenProps {
   userData: any;
+  userToken: string;
   onBack: () => void;
   onLogout: () => void;
   onSavedAddressPress?: () => void;
+  onOrderPress?: (orderId: string) => void;
 }
 
 const AccountScreen: React.FC<AccountScreenProps> = ({ 
   userData, 
+  userToken,
   onBack, 
   onLogout,
-  onSavedAddressPress 
+  onSavedAddressPress,
+  onOrderPress
 }) => {
   const [menuVisible, setMenuVisible] = useState(false);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  const fetchOrders = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/user`, {
+        headers: {
+          'Authorization': `Bearer ${userToken}`
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setOrders(data.orders || []);
+      }
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
 
   const menuItems = [
     { id: '1', title: 'Account Statement', icon: 'document-outline' },
@@ -48,6 +79,45 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
   const handleLogout = () => {
     setMenuVisible(false);
     onLogout();
+  };
+
+  const renderOrder = (order: any) => {
+    const isDelivered = order.status === 'delivered' || order.is_completed;
+    const isCancelled = order.status === 'cancelled' || order.status === 'declined';
+    
+    return (
+      <View key={order.id} style={styles.orderCard}>
+        <View style={styles.orderHeader}>
+          <View>
+            <Text style={styles.orderStoreName}>{order.store_name || 'FreshRun Store'}</Text>
+            <Text style={styles.orderLocation}>{order.store_address || 'Punnapra, Alappuzha'}</Text>
+            <Text style={styles.orderAmount}>₹{order.total_amount}</Text>
+          </View>
+          <View style={styles.statusBadge}>
+            <Text style={[
+              styles.statusText,
+              isCancelled && { color: Colors.error }
+            ]}>
+              {order.status?.toUpperCase() || (order.is_completed ? 'DELIVERED' : 'PENDING')}
+            </Text>
+            <Icon 
+              name={isDelivered ? "checkmark-circle" : (isCancelled ? "close-circle" : "time")} 
+              size={16} 
+              color={isCancelled ? Colors.error : Colors.primary} 
+              style={styles.statusIcon} 
+            />
+          </View>
+        </View>
+        <View style={styles.orderDivider} />
+        <TouchableOpacity 
+          style={styles.viewMenuButton}
+          onPress={() => onOrderPress && onOrderPress(order.id)}
+        >
+          <Text style={styles.viewMenuText}>VIEW DETAILS</Text>
+          <Icon name="chevron-forward" size={14} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+    );
   };
 
   return (
@@ -148,26 +218,20 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
 
         {/* Past Orders Section */}
         <View style={styles.sectionTitleContainer}>
-          <Text style={styles.sectionTitle}>PAST ORDERS</Text>
+          <Text style={styles.sectionTitle}>ORDERS</Text>
         </View>
 
-        <View style={styles.orderCard}>
-          <View style={styles.orderHeader}>
-            <View>
-              <Text style={styles.orderStoreName}>FreshRun Mart</Text>
-              <Text style={styles.orderLocation}>Punnapra, Alappuzha</Text>
-            </View>
-            <View style={styles.statusBadge}>
-              <Text style={styles.statusText}>Delivered</Text>
-              <Icon name="checkmark-circle" size={16} color={Colors.primary} style={styles.statusIcon} />
-            </View>
+        {loadingOrders ? (
+          <View style={{ padding: 20 }}>
+            <ActivityIndicator size="small" color={Colors.primary} />
           </View>
-          <View style={styles.orderDivider} />
-          <TouchableOpacity style={styles.viewMenuButton}>
-            <Text style={styles.viewMenuText}>VIEW DETAILS</Text>
-            <Icon name="chevron-forward" size={14} color={Colors.primary} />
-          </TouchableOpacity>
-        </View>
+        ) : orders.length > 0 ? (
+          orders.map(order => renderOrder(order))
+        ) : (
+          <View style={styles.emptyOrdersContainer}>
+            <Text style={styles.emptyOrdersText}>No orders yet</Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -176,7 +240,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background, // Light blueish grey background as in image
+    backgroundColor: Colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -306,6 +370,7 @@ const styles = StyleSheet.create({
     padding: 15,
     borderWidth: 1,
     borderColor: '#eee',
+    marginBottom: 10,
   },
   orderHeader: {
     flexDirection: 'row',
@@ -323,12 +388,18 @@ const styles = StyleSheet.create({
     color: '#888',
     marginTop: 2,
   },
+  orderAmount: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: '#333',
+    marginTop: 5,
+  },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   statusText: {
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: Fonts.bold,
     color: Colors.primary,
     marginRight: 5,
@@ -351,6 +422,15 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bold,
     color: Colors.primary,
     marginRight: 4,
+  },
+  emptyOrdersContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyOrdersText: {
+    fontSize: 14,
+    fontFamily: Fonts.medium,
+    color: '#999',
   },
   logoutButton: {
     flexDirection: 'row',
@@ -379,9 +459,9 @@ const styles = StyleSheet.create({
     paddingRight: 15,
   },
   menuDropdown: {
-    backgroundColor: '#2d2d2d', // Dark background as in image
-    width: 140, // Reduced from 180
-    borderRadius: 12, // Slightly more compact radius
+    backgroundColor: '#2d2d2d',
+    width: 140,
+    borderRadius: 12,
     paddingVertical: 4,
     elevation: 5,
     shadowColor: '#000',
@@ -390,12 +470,12 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
   },
   menuOption: {
-    paddingVertical: 10, // Reduced from 15
-    paddingHorizontal: 15, // Reduced from 20
+    paddingVertical: 10,
+    paddingHorizontal: 15,
   },
   menuOptionText: {
     color: '#fff',
-    fontSize: 14, // Reduced from 16
+    fontSize: 14,
     fontFamily: Fonts.medium,
   },
   menuDivider: {

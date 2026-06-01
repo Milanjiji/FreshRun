@@ -1,6 +1,8 @@
-import React, { useRef, useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { WebView } from 'react-native-webview';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Colors } from '../theme/colors';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 interface Coordinate {
   lat: number;
@@ -10,102 +12,95 @@ interface Coordinate {
 interface LiveMapProps {
   storeLocation: Coordinate;
   userLocation: Coordinate;
+  driverLocation?: Coordinate | null;
 }
 
-const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, userLocation }) => {
-  const webViewRef = useRef<WebView>(null);
+const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, userLocation, driverLocation }) => {
+  const mapRef = useRef<MapView>(null);
+  const [mapReady, setMapReady] = useState(false);
 
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <style>
-        body { padding: 0; margin: 0; }
-        html, body, #map { height: 100%; width: 100%; }
-        /* Custom markers styling */
-        .store-icon {
-          background-color: #3b82f6; /* Blue for store */
-          border-radius: 50%;
-          border: 3px solid white;
-          box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          color: white;
-          font-weight: bold;
-          font-family: sans-serif;
-        }
-        .home-icon {
-          background-color: #22c55e; /* Green for home */
-          border-radius: 50%;
-          border: 3px solid white;
-          box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          color: white;
-          font-weight: bold;
-          font-family: sans-serif;
-        }
-      </style>
-    </head>
-    <body>
-      <div id="map"></div>
-      <script>
-        // Wait for Leaflet to load
-        document.addEventListener('DOMContentLoaded', () => {
-          const storeLoc = [${storeLocation.lat}, ${storeLocation.lng}];
-          const userLoc = [${userLocation.lat}, ${userLocation.lng}];
+  const fitMapToMarkers = useCallback(() => {
+    if (!mapReady || !mapRef.current) {
+      return;
+    }
 
-          // Initialize map without zoom controls for cleaner UI
-          const map = L.map('map', { zoomControl: false }).setView(storeLoc, 13);
+    const coords = [
+      { latitude: storeLocation.lat, longitude: storeLocation.lng },
+      { latitude: userLocation.lat, longitude: userLocation.lng },
+    ];
 
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-          }).addTo(map);
+    if (driverLocation) {
+      coords.push({ latitude: driverLocation.lat, longitude: driverLocation.lng });
+    }
 
-          // Create custom SVG icons
-          const storeHtml = '<div style="width: 100%; height: 100%;" class="store-icon">S</div>';
-          const homeHtml = '<div style="width: 100%; height: 100%;" class="home-icon">H</div>';
+    mapRef.current.fitToCoordinates(coords, {
+      edgePadding: { top: 100, right: 80, bottom: 100, left: 80 },
+      animated: true,
+    });
+  }, [
+    driverLocation,
+    mapReady,
+    storeLocation.lat,
+    storeLocation.lng,
+    userLocation.lat,
+    userLocation.lng,
+  ]);
 
-          const storeIcon = L.divIcon({ html: storeHtml, className: '', iconSize: [36, 36], iconAnchor: [18, 18] });
-          const homeIcon = L.divIcon({ html: homeHtml, className: '', iconSize: [36, 36], iconAnchor: [18, 18] });
-
-          // Add markers
-          const storeMarker = L.marker(storeLoc, { icon: storeIcon }).addTo(map);
-          const homeMarker = L.marker(userLoc, { icon: homeIcon }).addTo(map);
-
-          // Draw a dashed line between them
-          const latlngs = [storeLoc, userLoc];
-          const polyline = L.polyline(latlngs, {
-            color: '#10b981',
-            weight: 4,
-            dashArray: '10, 10'
-          }).addTo(map);
-
-          // Fit map bounds to show both markers with some padding
-          const bounds = L.latLngBounds([storeLoc, userLoc]);
-          map.fitBounds(bounds, { padding: [50, 50] });
-        });
-      </script>
-    </body>
-    </html>
-  `;
+  useEffect(() => {
+    fitMapToMarkers();
+  }, [fitMapToMarkers]);
 
   return (
     <View style={styles.container}>
-      <WebView
-        ref={webViewRef}
-        source={{ html: htmlContent }}
-        style={styles.webview}
-        scrollEnabled={true}
-        bounces={false}
-        showsHorizontalScrollIndicator={false}
-        showsVerticalScrollIndicator={false}
-      />
+      <MapView
+        ref={mapRef}
+        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        style={styles.map}
+        onMapReady={() => setMapReady(true)}
+        initialRegion={{
+          latitude: storeLocation.lat,
+          longitude: storeLocation.lng,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }}
+      >
+        {/* Store Marker */}
+        <Marker
+          coordinate={{ latitude: storeLocation.lat, longitude: storeLocation.lng }}
+          title="Store"
+          pinColor={Colors.secondary}
+        />
+
+        {/* Customer Marker */}
+        <Marker
+          coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
+          title="Your Location"
+          pinColor={Colors.primary}
+        />
+
+        {/* Driver Marker */}
+        {driverLocation && (
+          <Marker
+            coordinate={{ latitude: driverLocation.lat, longitude: driverLocation.lng }}
+            title="Delivery Partner"
+          >
+            <View style={styles.driverMarker}>
+              <Icon name="bicycle" size={20} color="#fff" />
+            </View>
+          </Marker>
+        )}
+
+        {/* Route Line (Dashed) */}
+        <Polyline
+          coordinates={[
+            { latitude: storeLocation.lat, longitude: storeLocation.lng },
+            { latitude: userLocation.lat, longitude: userLocation.lng }
+          ]}
+          strokeColor={Colors.primary}
+          strokeWidth={3}
+          lineDashPattern={[10, 10]}
+        />
+      </MapView>
     </View>
   );
 };
@@ -115,10 +110,17 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  webview: {
+  map: {
     flex: 1,
-    backgroundColor: '#e0e0e0', // Placeholder color while loading
   },
+  driverMarker: {
+    backgroundColor: '#0066FF',
+    padding: 8,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#fff',
+    elevation: 5,
+  }
 });
 
 export default LiveMap;

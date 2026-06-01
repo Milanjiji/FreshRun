@@ -38,6 +38,7 @@ export async function createNotificationChannels() {
  */
 export async function registerFCMToken(userToken: string, fcmToken: string) {
   try {
+    console.log('[FCM] Registering token with backend...', fcmToken);
     const response = await fetch(`${API_BASE_URL}/user/fcm-token`, {
       method: 'POST',
       headers: { 
@@ -48,12 +49,13 @@ export async function registerFCMToken(userToken: string, fcmToken: string) {
     });
     
     if (response.ok) {
-      console.log('[FCM] Token registered with backend');
+      console.log('[FCM] Token registered with backend successfully');
     } else {
-      console.error('[FCM] Failed to register token:', await response.text());
+      const errorText = await response.text();
+      console.error('[FCM] Failed to register token with backend:', response.status, errorText);
     }
   } catch (error) {
-    console.error('[FCM] Error registering token:', error);
+    console.error('[FCM] Error registering token with backend:', error);
   }
 }
 
@@ -61,20 +63,27 @@ export async function registerFCMToken(userToken: string, fcmToken: string) {
  * Setup FCM listeners
  */
 export function setupFCMListeners(onNotification: (data: any) => void) {
+  console.log('[FCM] Setting up listeners...');
+  
   // Handle foreground messages
   const unsubscribeOnMessage = messaging().onMessage(async remoteMessage => {
-    console.log('[FCM] Foreground message:', remoteMessage);
+    console.log('[FCM] Foreground Message received:', JSON.stringify(remoteMessage, null, 2));
     
-    // Display local notification
-    await notifee.displayNotification({
-      title: remoteMessage.notification?.title || 'Order Update',
-      body: remoteMessage.notification?.body || '',
-      android: {
-        channelId: 'order_updates',
-        pressAction: { id: 'default' },
-      },
-      data: remoteMessage.data,
-    });
+    try {
+      // Display local notification
+      await notifee.displayNotification({
+        title: remoteMessage.notification?.title || remoteMessage.data?.title || 'Order Update',
+        body: remoteMessage.notification?.body || remoteMessage.data?.body || '',
+        android: {
+          channelId: 'order_updates',
+          pressAction: { id: 'default' },
+        },
+        data: remoteMessage.data,
+      });
+      console.log('[FCM] Foreground notification displayed via Notifee');
+    } catch (err) {
+      console.error('[FCM] Error displaying foreground notification:', err);
+    }
   });
 
   // Handle foreground notification banner clicks

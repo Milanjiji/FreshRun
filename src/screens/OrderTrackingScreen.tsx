@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,10 @@ import {
   StatusBar,
   Modal,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import io from 'socket.io-client';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { API_BASE_URL } from '../config/api';
@@ -18,21 +20,128 @@ import LiveMap from '../components/LiveMap';
 interface OrderTrackingScreenProps {
   orderId: string | null;
   activeOrder: any;
+  userToken: string | null;
   onHome: () => void;
 }
+
+const parseCoordinate = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const parsedValue = typeof value === 'number' ? value : parseFloat(String(value));
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+};
 
 const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
   orderId,
   activeOrder,
+  userToken,
   onHome,
 }) => {
+  const [trackedOrder, setTrackedOrder] = useState<any>(
+    activeOrder?.id === orderId ? activeOrder : null
+  );
+  const [loadingOrder, setLoadingOrder] = useState(activeOrder?.id !== orderId);
+  const [orderError, setOrderError] = useState<string | null>(null);
   const [storeCoords, setStoreCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const socketRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (activeOrder?.id === orderId) {
+      setTrackedOrder(activeOrder);
+    }
+  }, [activeOrder, orderId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchOrder = async () => {
+      if (!orderId || !userToken) {
+        setLoadingOrder(false);
+        setOrderError('Order details are unavailable.');
+        return;
+      }
+
+      if (activeOrder?.id !== orderId) {
+        setTrackedOrder(null);
+        setLoadingOrder(true);
+      }
+      setOrderError(null);
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/orders/${orderId}`, {
+          headers: {
+            Authorization: `Bearer ${userToken}`,
+          },
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success || !data.order) {
+          throw new Error(data.error || 'Failed to load order details.');
+        }
+
+        if (isMounted) {
+          setTrackedOrder(data.order);
+        }
+      } catch (error: any) {
+        if (isMounted) {
+          setOrderError(error.message || 'Failed to load order details.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingOrder(false);
+        }
+      }
+    };
+
+    fetchOrder();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeOrder?.id, orderId, userToken]);
+
+  // Use a screen-level socket so historical order views subscribe to their own order room.
+  useEffect(() => {
+    if (!orderId) {
+      return;
+    }
+
+    socketRef.current = io(API_BASE_URL);
+
+    socketRef.current.on('connect', () => {
+      socketRef.current?.emit('join_room', `order_${orderId}`);
+    });
+
+    socketRef.current.on('delivery_location_updated', (data: any) => {
+      const lat = parseCoordinate(data.latitude);
+      const lng = parseCoordinate(data.longitude);
+      if (data.orderId === orderId && lat !== null && lng !== null) {
+        setDriverCoords({ lat, lng });
+      }
+    });
+
+    socketRef.current.on('order_status_changed', (updatedOrder: any) => {
+      if (updatedOrder?.id === orderId) {
+        setTrackedOrder(updatedOrder);
+      }
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [orderId]);
 
   useEffect(() => {
     const fetchStoreLocation = async () => {
-      const lat = activeOrder?.store_lat ? parseFloat(activeOrder.store_lat) : null;
-      const lng = activeOrder?.store_lng ? parseFloat(activeOrder.store_lng) : null;
+      setStoreCoords(null);
+      const lat = parseCoordinate(trackedOrder?.store_lat);
+      const lng = parseCoordinate(trackedOrder?.store_lng);
 
       // 1. Check if we already have both coordinates from the backend join
       if (lat !== null && lng !== null) {
@@ -41,17 +150,17 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
       }
 
       // 2. If missing, fetch from store details endpoint (Client-side fallback)
-      if (activeOrder?.store_id) {
+      if (trackedOrder?.store_id) {
         try {
-          console.log(`[OrderTracking] Fetching missing store location for ID: ${activeOrder.store_id}`);
-          const response = await fetch(`${API_BASE_URL}/stores/${activeOrder.store_id}`);
+          console.log(`[OrderTracking] Fetching missing store location for ID: ${trackedOrder.store_id}`);
+          const response = await fetch(`${API_BASE_URL}/stores/${trackedOrder.store_id}`);
           const data = await response.json();
           if (data.success && data.data) {
-            setStoreCoords({
-              lat: parseFloat(data.data.latitude),
-              lng: parseFloat(data.data.longitude)
-            });
-            console.log(`[OrderTracking] Successfully fetched store location: ${data.data.latitude}, ${data.data.longitude}`);
+            const fallbackLat = parseCoordinate(data.data.latitude);
+            const fallbackLng = parseCoordinate(data.data.longitude);
+            if (fallbackLat !== null && fallbackLng !== null) {
+              setStoreCoords({ lat: fallbackLat, lng: fallbackLng });
+            }
           }
         } catch (error) {
           console.error('[OrderTracking] Failed to fetch fallback store location:', error);
@@ -60,32 +169,36 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
     };
 
     fetchStoreLocation();
-  }, [activeOrder?.id, activeOrder?.store_id, activeOrder?.store_lat, activeOrder?.store_lng]);
+  }, [trackedOrder?.id, trackedOrder?.store_id, trackedOrder?.store_lat, trackedOrder?.store_lng]);
 
-  // Fallback to Calicut ONLY if both order data and manual fetch fail
-  const storeLat = storeCoords?.lat || 11.2588;
-  const storeLng = storeCoords?.lng || 75.7804;
+  const storeLat = storeCoords?.lat ?? null;
+  const storeLng = storeCoords?.lng ?? null;
   
   // Delivery coordinates come from the order/address relation, not the device location.
-  const userLat =
-    activeOrder?.delivery_address?.latitude ||
-    activeOrder?.delivery_address?.lat ||
-    activeOrder?.user_lat ||
-    11.2588;
-  const userLng =
-    activeOrder?.delivery_address?.longitude ||
-    activeOrder?.delivery_address?.lng ||
-    activeOrder?.user_lng ||
-    75.7804;
+  const userLat = parseCoordinate(
+    trackedOrder?.delivery_address?.latitude ??
+    trackedOrder?.delivery_address?.lat ??
+    trackedOrder?.user_lat
+  );
+  const userLng = parseCoordinate(
+    trackedOrder?.delivery_address?.longitude ??
+    trackedOrder?.delivery_address?.lng ??
+    trackedOrder?.user_lng
+  );
+  const hasMapCoordinates =
+    storeLat !== null &&
+    storeLng !== null &&
+    userLat !== null &&
+    userLng !== null;
 
   useEffect(() => {
     console.log("--- OrderTrackingScreen Debug ---");
-    console.log("Active Order ID:", activeOrder?.id);
+    console.log("Tracked Order ID:", trackedOrder?.id);
     console.log("Final Store Lat/Lng:", storeLat, storeLng);
     console.log("User Lat/Lng:", userLat, userLng);
-    console.log("Backend provided store_lat:", activeOrder?.store_lat);
+    console.log("Backend provided store_lat:", trackedOrder?.store_lat);
     console.log("--------------------------------");
-  }, [activeOrder, storeLat, storeLng, userLat, userLng]);
+  }, [storeLat, storeLng, trackedOrder, userLat, userLng]);
 
   const renderDetailsModal = () => (
     <Modal
@@ -110,7 +223,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
               <View style={styles.infoCard}>
                  <Icon name="basket" size={20} color={Colors.primary} />
                  <View style={{ marginLeft: 12 }}>
-                    <Text style={styles.infoTitle}>{activeOrder?.store_name || "FreshRun Partner Store"}</Text>
+                    <Text style={styles.infoTitle}>{trackedOrder?.store_name || "FreshRun Partner Store"}</Text>
                     <Text style={styles.infoSub}>Order ID: #{orderId?.split('-')[0].toUpperCase()}</Text>
                  </View>
               </View>
@@ -137,7 +250,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
             <View style={styles.detailSection}>
               <Text style={styles.sectionHeading}>Bill Details</Text>
               <View style={styles.billCard}>
-                 {activeOrder?.items?.map((item: any, idx: number) => (
+                 {trackedOrder?.items?.map((item: any, idx: number) => (
                     <View key={idx} style={styles.billRow}>
                        <Text style={styles.billLabel}>{item.quantity}x {item.name}</Text>
                        <Text style={styles.billValue}>₹{(item.price * item.quantity).toFixed(2)}</Text>
@@ -148,22 +261,22 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
                  
                  <View style={styles.billRow}>
                     <Text style={styles.billLabel}>Item Total</Text>
-                    <Text style={styles.billValue}>₹{parseFloat(activeOrder?.subtotal || 0).toFixed(2)}</Text>
+                    <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.subtotal || 0).toFixed(2)}</Text>
                  </View>
                  <View style={styles.billRow}>
                     <Text style={styles.billLabel}>Delivery Fee</Text>
-                    <Text style={styles.billValue}>₹{parseFloat(activeOrder?.delivery_fee || 0).toFixed(2)}</Text>
+                    <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.delivery_fee || 0).toFixed(2)}</Text>
                  </View>
-                 {parseFloat(activeOrder?.late_night_fee) > 0 && (
+                 {parseFloat(trackedOrder?.late_night_fee) > 0 && (
                    <View style={styles.billRow}>
                       <Text style={styles.billLabel}>Late Night Fee</Text>
-                      <Text style={styles.billValue}>₹{parseFloat(activeOrder?.late_night_fee).toFixed(2)}</Text>
+                      <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.late_night_fee).toFixed(2)}</Text>
                    </View>
                  )}
                  
                  <View style={[styles.billRow, { marginTop: 10 }]}>
                     <Text style={styles.totalLabel}>Total Amount</Text>
-                    <Text style={styles.totalValue}>₹{parseFloat(activeOrder?.total_amount || 0).toFixed(2)}</Text>
+                    <Text style={styles.totalValue}>₹{parseFloat(trackedOrder?.total_amount || 0).toFixed(2)}</Text>
                  </View>
               </View>
             </View>
@@ -174,8 +287,8 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
               <View style={styles.infoCard}>
                  <Icon name="location" size={20} color="#FF3B30" />
                  <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={styles.infoTitle}>{activeOrder?.delivery_address?.saveAs || "Home"}</Text>
-                    <Text style={styles.infoSub}>{activeOrder?.delivery_address?.line1}</Text>
+                    <Text style={styles.infoTitle}>{trackedOrder?.delivery_address?.saveAs || "Home"}</Text>
+                    <Text style={styles.infoSub}>{trackedOrder?.delivery_address?.line1}</Text>
                  </View>
               </View>
             </View>
@@ -187,7 +300,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
 
   // Helper to format status display
   const getStatusDisplay = () => {
-    const status = activeOrder?.status;
+    const status = trackedOrder?.status;
     if (!status || status === 'pending') return 'Confirmed';
     return status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ');
   };
@@ -199,10 +312,26 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
       
       {/* Interactive Map */}
       <View style={styles.mapContainer}>
-        <LiveMap 
-          storeLocation={{ lat: storeLat, lng: storeLng }} 
-          userLocation={{ lat: userLat, lng: userLng }} 
-        />
+        {hasMapCoordinates ? (
+          <LiveMap
+            storeLocation={{ lat: storeLat, lng: storeLng }}
+            userLocation={{ lat: userLat, lng: userLng }}
+            driverLocation={driverCoords}
+          />
+        ) : (
+          <View style={styles.mapErrorContainer}>
+            {loadingOrder ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Icon name="map-outline" size={28} color="#888" />
+            )}
+            <Text style={styles.mapErrorText}>
+              {loadingOrder
+                ? 'Loading order map...'
+                : orderError || 'Map coordinates are missing for this order.'}
+            </Text>
+          </View>
+        )}
         
         {/* Header Overlay */}
         <SafeAreaView style={styles.headerOverlay}>
@@ -231,26 +360,26 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
              <View style={[styles.stepDot, styles.stepDotActive]} />
              <Text style={styles.stepTextActive}>Confirmed</Text>
           </View>
-          <View style={[styles.stepLine, activeOrder?.is_packed && styles.stepDotActive]} />
+          <View style={[styles.stepLine, trackedOrder?.is_packed && styles.stepDotActive]} />
           
           {/* Stage 2: Order Packed */}
           <View style={styles.step}>
-             <View style={[styles.stepDot, activeOrder?.is_packed && styles.stepDotActive]} />
-             <Text style={activeOrder?.is_packed ? styles.stepTextActive : styles.stepText}>Packed</Text>
+             <View style={[styles.stepDot, trackedOrder?.is_packed && styles.stepDotActive]} />
+             <Text style={trackedOrder?.is_packed ? styles.stepTextActive : styles.stepText}>Packed</Text>
           </View>
-          <View style={[styles.stepLine, activeOrder?.delivery_boy_opted && styles.stepDotActive]} />
+          <View style={[styles.stepLine, trackedOrder?.delivery_boy_opted && styles.stepDotActive]} />
           
           {/* Stage 3: Delivery Boy Assigned */}
           <View style={styles.step}>
-             <View style={[styles.stepDot, activeOrder?.delivery_boy_opted && styles.stepDotActive]} />
-             <Text style={activeOrder?.delivery_boy_opted ? styles.stepTextActive : styles.stepText}>Assigned</Text>
+             <View style={[styles.stepDot, trackedOrder?.delivery_boy_opted && styles.stepDotActive]} />
+             <Text style={trackedOrder?.delivery_boy_opted ? styles.stepTextActive : styles.stepText}>Assigned</Text>
           </View>
-          <View style={[styles.stepLine, activeOrder?.is_given_to_delivery_boy && styles.stepDotActive]} />
+          <View style={[styles.stepLine, trackedOrder?.is_given_to_delivery_boy && styles.stepDotActive]} />
           
           {/* Stage 4: Delivered */}
           <View style={styles.step}>
-             <View style={[styles.stepDot, activeOrder?.is_completed && styles.stepDotActive]} />
-             <Text style={activeOrder?.is_completed ? styles.stepTextActive : styles.stepText}>Delivered</Text>
+             <View style={[styles.stepDot, trackedOrder?.is_completed && styles.stepDotActive]} />
+             <Text style={trackedOrder?.is_completed ? styles.stepTextActive : styles.stepText}>Delivered</Text>
           </View>
         </View>
         
@@ -271,6 +400,21 @@ const styles = StyleSheet.create({
     flex: 0.65,
     backgroundColor: '#e0e0e0',
     position: 'relative',
+  },
+  mapErrorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF1F4',
+    paddingHorizontal: 30,
+  },
+  mapErrorText: {
+    color: '#666',
+    fontFamily: Fonts.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 10,
+    textAlign: 'center',
   },
   mapImage: {
     width: '100%',

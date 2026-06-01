@@ -16,6 +16,7 @@ import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { API_BASE_URL } from '../config/api';
+import DebugMapScreen from './DebugMapScreen';
 
 
 interface HomeScreenProps {
@@ -29,8 +30,6 @@ interface HomeScreenProps {
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ 
   userData, 
-  locationData, 
-  onLogout, 
   onAddressPress,
   onProfilePress,
   onStorePress,
@@ -41,6 +40,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isVeg, setIsVeg] = useState(false);
+  const [showDebugMap, setShowDebugMap] = useState(false);
 
   const socketRef = useRef<any>(null);
 
@@ -126,15 +126,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
 
+  if (showDebugMap) {
+    return <DebugMapScreen onBack={() => setShowDebugMap(false)} />;
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
       
       <HomeHeader 
         userData={userData} 
-        locationData={locationData} 
         onProfilePress={onProfilePress}
         onAddressPress={onAddressPress}
+        onProfileLongPress={() => setShowDebugMap(true)}
       />
 
       <ScrollView 
@@ -144,12 +148,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         {/* Sticky Section: Category Pills + Search Bar */}
         <View style={styles.stickySection}>
 
-          {/* Category Pills */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillsContainer}
-          >
+          {/* Category Tabs */}
+          <View style={styles.pillsContainer}>
             {categories.map((cat) => {
               const isActive = selectedCategory === cat.id;
               return (
@@ -165,7 +165,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                 </TouchableOpacity>
               );
             })}
-          </ScrollView>
+          </View>
 
           {/* Search Row */}
           <View style={styles.searchRow}>
@@ -326,17 +326,18 @@ const styles = StyleSheet.create({
   pillsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 15,
-    paddingTop: 8,
-    paddingBottom: 10,
-    gap: 8,
+    paddingTop: 10,
+    paddingBottom: 15,
+    gap: 10,
   },
   pillBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 50,
-    backgroundColor: '#f0f0f0',
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#eee',
   },
   pillBtnActive: {
     backgroundColor: Colors.primary,
@@ -345,14 +346,14 @@ const styles = StyleSheet.create({
   pillText: {
     fontSize: 13,
     fontFamily: Fonts.bold,
-    color: '#555',
+    color: '#666',
   },
   pillTextActive: {
     color: '#fff',
   },
   stickySection: {
     backgroundColor: Colors.white,
-    paddingTop: 6,
+    paddingTop: 0,
     borderBottomWidth: 0,
   },
   searchRow: {

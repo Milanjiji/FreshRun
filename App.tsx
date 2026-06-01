@@ -51,6 +51,7 @@ function App() {
   const [showOrderDeclined, setShowOrderDeclined] = useState(false);
   const [isAddingNewAddress, setIsAddingNewAddress] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null);
   const [activeOrder, setActiveOrder] = useState<any>(null);
   const [activeOrderTimestamp, setActiveOrderTimestamp] = useState<number | null>(null);
   const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<number>(0);
@@ -66,6 +67,7 @@ function App() {
           if (hasPermission) {
             await createNotificationChannels();
             const fcmToken = await messaging().getToken();
+            console.log('[FCM] Token:', fcmToken);
             await registerFCMToken(userToken, fcmToken);
             
             // Listen for token refresh
@@ -73,9 +75,12 @@ function App() {
               await registerFCMToken(userToken, newToken);
             });
 
+            console.log('[FCM] Initializing listeners...');
             const cleanupListeners = setupFCMListeners((data) => {
+              console.log('[FCM] Callback triggered with data:', data);
               if (data?.orderId) {
                 setOrderId(data.orderId);
+                setSelectedTrackingOrderId(null);
                 setShowOrderTracking(true);
               }
             });
@@ -412,6 +417,8 @@ function App() {
     setLocationData(null);
     setShowAccount(false);
     setOrderId(null);
+    setSelectedTrackingOrderId(null);
+    setActiveOrder(null);
     setActiveOrderTimestamp(null);
   };
 
@@ -501,11 +508,17 @@ function App() {
       return (
         <AccountScreen 
           userData={userData}
+          userToken={userToken!}
           onBack={() => setShowAccount(false)}
           onLogout={handleLogout}
           onSavedAddressPress={() => {
             setShowAccount(false);
             setIsSelectingLocation(true);
+          }}
+          onOrderPress={(id) => {
+            setSelectedTrackingOrderId(id);
+            setShowAccount(false);
+            setShowOrderTracking(true);
           }}
         />
       );
@@ -551,10 +564,12 @@ function App() {
     if (showOrderTracking) {
       return (
         <OrderTrackingScreen 
-          orderId={orderId}
+          orderId={selectedTrackingOrderId || orderId}
           activeOrder={activeOrder}
+          userToken={userToken}
           onHome={() => {
             setShowOrderTracking(false);
+            setSelectedTrackingOrderId(null);
             // We NO LONGER clear orderId or cart here so the active order widget can show
           }}
         />
@@ -585,6 +600,7 @@ function App() {
             }
 
             setShowOrderConfirming(false);
+            setSelectedTrackingOrderId(null);
             setShowOrderTracking(true);
             clearCart();
           }}
@@ -665,6 +681,7 @@ function App() {
               if (activeOrder?.status === 'declined') {
                 setShowOrderDeclined(true);
               } else {
+                setSelectedTrackingOrderId(null);
                 setShowOrderTracking(true);
               }
             }} 

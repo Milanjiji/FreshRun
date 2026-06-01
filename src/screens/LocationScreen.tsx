@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
   SafeAreaView,
   Platform,
@@ -12,9 +11,8 @@ import {
   Image,
   Animated,
 } from 'react-native';
-import { useRef } from 'react';
-import { WebView } from 'react-native-webview';
 import Geolocation from '@react-native-community/geolocation';
+import MapView, { PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
 import { Fonts } from '../theme/typography';
@@ -29,7 +27,9 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fetchedLocation, setFetchedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  
+  const [mapReady, setMapReady] = useState(false);
+  const mapRef = useRef<MapView>(null);
+  const autoFetchStartedRef = useRef(false);
   const transitionAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -46,7 +46,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
         useNativeDriver: false,
       }).start();
     }
-  }, [fetchedLocation]);
+  }, [fetchedLocation, transitionAnim]);
 
   const translateY = transitionAnim.interpolate({
     inputRange: [0, 1],
@@ -68,101 +68,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     outputRange: [0.9, 1],
   });
 
-  const getMapHtml = (lat: number, lng: number) => `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <style>
-          body { margin: 0; padding: 0; }
-          #map { height: 100vh; width: 100vw; }
-          .leaflet-control-attribution { display: none; }
-        </style>
-      </head>
-      <body>
-        <div id="map"></div>
-        <script>
-          var map = L.map('map', {
-            zoomControl: false,
-            attributionControl: false,
-            touchZoom: true,
-            doubleClickZoom: true,
-            dragging: true,
-            zoomAnimation: true
-          }).setView([${lat}, ${lng}], 16);
-          
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-          
-          map.on('move', function(e) {
-            var center = map.getCenter();
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              lat: center.lat,
-              lng: center.lng,
-              isManual: e.originalEvent !== undefined
-            }));
-          });
-        </script>
-      </body>
-    </html>
-  `;
-
-  const [mapReady, setMapReady] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [hasUserMovedMap, setHasUserMovedMap] = useState(false);
-  const initialMapLocation = useRef<{lat: number, lng: number} | null>(null);
-  const webviewRef = useRef<WebView>(null);
-
-  useEffect(() => {
-    if (fetchedLocation && !initialMapLocation.current) {
-      initialMapLocation.current = { lat: fetchedLocation.latitude, lng: fetchedLocation.longitude };
-      setMapReady(true);
-    }
-  }, [fetchedLocation]);
-
-  const handleRefresh = () => {
-    initialMapLocation.current = null;
-    setMapReady(false);
-    setHasUserMovedMap(false);
-    setRefreshKey(prev => prev + 1);
-    getLocation();
-  };
-
-  const handleMapMessage = (event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.lat && data.lng) {
-        if (data.isManual) {
-          setHasUserMovedMap(true);
-        }
-        // Only update the coordinate display, don't trigger a WebView source refresh
-        setFetchedLocation({ latitude: data.lat, longitude: data.lng });
-      }
-    } catch (e) {
-      console.error("Map Message Error:", e);
-    }
-  };
-
-  useEffect(() => {
-    if (mapReady && fetchedLocation && !hasUserMovedMap && webviewRef.current) {
-      const js = `
-        if (typeof map !== 'undefined') {
-          map.setView([${fetchedLocation.latitude}, ${fetchedLocation.longitude}], 16);
-        }
-      `;
-      webviewRef.current.injectJavaScript(js);
-    }
-  }, [fetchedLocation, mapReady]);
-
-  useEffect(() => {
-    // If we have an existing location from storage, treat it as "fetched" initially
-    if (existingLocation) {
-      setFetchedLocation(existingLocation);
-    }
-  }, [existingLocation]);
-
-  const requestLocationPermission = async () => {
+  const requestLocationPermission = useCallback(async () => {
     if (Platform.OS === 'ios') {
       // iOS permission is handled by the library when calling getCurrentPosition
       return true;
@@ -192,31 +98,17 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
       console.warn(err);
       return false;
     }
-  };
-
-  useEffect(() => {
-    const checkAndAutoFetch = async () => {
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.check(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-        );
-        if (granted) {
-          getLocation();
-        }
-      } else {
-        // On iOS, calling getCurrentPosition will trigger the prompt if not yet asked,
-        // but if already granted it will just return the location.
-        // We'll wait a brief moment to ensure UI is ready.
-        setTimeout(() => {
-          getLocation();
-        }, 500);
-      }
-    };
-
-    checkAndAutoFetch();
   }, []);
 
-  const getLocation = async () => {
+  const animateToLocation = useCallback((location: { latitude: number; longitude: number }) => {
+    mapRef.current?.animateToRegion({
+      ...location,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    }, 350);
+  }, []);
+
+  const getLocation = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -231,7 +123,11 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
       (position) => {
         const { latitude, longitude } = position.coords;
         console.log('Location obtained:', latitude, longitude);
-        setFetchedLocation({ latitude, longitude });
+        const location = { latitude, longitude };
+        setFetchedLocation(location);
+        if (mapReady) {
+          animateToLocation(location);
+        }
         setLoading(false);
       },
       (err) => {
@@ -242,6 +138,45 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
+  }, [animateToLocation, mapReady, requestLocationPermission]);
+
+  useEffect(() => {
+    // If we have an existing location from storage, treat it as "fetched" initially.
+    if (existingLocation) {
+      setFetchedLocation(existingLocation);
+    }
+  }, [existingLocation]);
+
+  useEffect(() => {
+    const checkAndAutoFetch = async () => {
+      if (autoFetchStartedRef.current) {
+        return;
+      }
+      autoFetchStartedRef.current = true;
+
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+        );
+        if (granted) {
+          getLocation();
+        }
+      } else {
+        // iOS remains on the default native map provider until native Google Maps is configured.
+        setTimeout(() => {
+          getLocation();
+        }, 500);
+      }
+    };
+
+    checkAndAutoFetch();
+  }, [getLocation]);
+
+  const handleRegionChangeComplete = (region: Region) => {
+    setFetchedLocation({
+      latitude: region.latitude,
+      longitude: region.longitude,
+    });
   };
 
   return (
@@ -264,19 +199,25 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
             />
           </Animated.View>
           
-          {mapReady && initialMapLocation.current && (
+          {fetchedLocation && (
             <Animated.View style={[
               styles.mapWrapper,
               { opacity: mapOpacity, transform: [{ scale: mapScale }] }
             ]}>
-              <WebView
-                ref={webviewRef}
-                key={`map-${refreshKey}`}
+              <MapView
+                ref={mapRef}
+                provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                 style={styles.map}
-                originWhitelist={['*']}
-                source={{ html: getMapHtml(initialMapLocation.current.lat, initialMapLocation.current.lng) }}
-                scrollEnabled={true}
-                onMessage={handleMapMessage}
+                initialRegion={{
+                  ...fetchedLocation,
+                  latitudeDelta: 0.01,
+                  longitudeDelta: 0.01,
+                }}
+                onMapReady={() => {
+                  setMapReady(true);
+                  animateToLocation(fetchedLocation);
+                }}
+                onRegionChangeComplete={handleRegionChangeComplete}
               />
               <View style={styles.centerMarkerContainer} pointerEvents="none">
                 <View style={styles.centerMarker} />
@@ -326,7 +267,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
           
           <TouchableOpacity 
             style={styles.linkButton} 
-            onPress={handleRefresh}
+            onPress={getLocation}
             disabled={loading}
           >
             <Text style={styles.linkText}>

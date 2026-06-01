@@ -13,10 +13,11 @@ import { Fonts } from '../theme/typography';
 interface HomeHeaderProps {
   onAddressPress?: () => void;
   onProfilePress?: () => void;
+  onProfileLongPress?: () => void;
   userData?: any;
 }
 
-const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress, userData }) => {
+const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress, onProfileLongPress, userData }) => {
   const displayAddress = userData?.addressLine 
     ? `${userData.houseNumber ? userData.houseNumber + ', ' : ''}${userData.addressLine}`
     : "Set your delivery address";
@@ -35,7 +36,12 @@ const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress,
           </TouchableOpacity>
         </View>
         
-        <TouchableOpacity style={styles.profileCircle} onPress={onProfilePress}>
+        <TouchableOpacity 
+          style={styles.profileCircle} 
+          onPress={onProfilePress}
+          onLongPress={onProfileLongPress}
+          delayLongPress={1000}
+        >
           <Icon name="person-circle" size={34} color="#333" />
         </TouchableOpacity>
       </View>
