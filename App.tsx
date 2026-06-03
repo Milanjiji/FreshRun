@@ -8,14 +8,13 @@ import {
 import io from 'socket.io-client';
 import messaging from '@react-native-firebase/messaging';
 import { storage } from './src/utils/storage';
-import { 
+import {
   requestNotificationPermission, 
   createNotificationChannels, 
   registerFCMToken, 
   setupFCMListeners 
 } from './src/utils/notifications';
 import LoginScreen from './src/screens/LoginScreen';
-import SplashScreen from './src/screens/SplashScreen';
 import LocationScreen from './src/screens/LocationScreen';
 import UserDetailsScreen from './src/screens/UserDetailsScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -34,10 +33,47 @@ import { Colors } from './src/theme/colors';
 import { Fonts } from './src/theme/typography';
 import { API_BASE_URL } from './src/config/api';
 
+import auth from '@react-native-firebase/auth';
+
 function App() {
   const [userToken, setUserToken] = useState<string | null>(null);
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // Firebase Auth & Token Refresh Logic
+  useEffect(() => {
+    const unsubscribe = auth().onIdTokenChanged(async (user) => {
+      console.log('[Auth] ID Token changed or user state changed');
+      if (user) {
+        // User is signed in or token refreshed
+        try {
+          const idToken = await user.getIdToken();
+          console.log('[Auth] New ID Token acquired');
+          
+          setUserToken(idToken);
+          storage.setItem('userToken', idToken);
+          
+          // Re-load userData from storage if it exists
+          const currentData = storage.getObject<any>('userData');
+          if (currentData) {
+            setUserData(currentData);
+          }
+        } catch (e) {
+          console.error('[Auth] Error getting ID token:', e);
+        }
+      } else {
+        // User is signed out
+        console.log('[Auth] User is signed out');
+        setUserToken(null);
+        setUserData(null);
+        storage.removeItem('userToken');
+        storage.removeItem('userData');
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
   const [hasLocation, setHasLocation] = useState(false);
   const [locationData, setLocationData] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isSelectingLocation, setIsSelectingLocation] = useState(false);
@@ -153,28 +189,8 @@ function App() {
   useEffect(() => {
     const checkAppState = async () => {
       try {
-        // 1. Check Login
-        const token = storage.getString('userToken');
-        const data = storage.getObject<any>('userData');
-        if (token && data && data.id) {
-          setUserToken(token);
-          setUserData(data);
-
-          // Restore active order if it exists and hasn't expired
-          const savedOrderId = storage.getString(`activeOrderId_${data.id}`);
-          const savedOrderTs = storage.getNumber(`activeOrderTimestamp_${data.id}`);
-          
-          if (savedOrderId && savedOrderTs) {
-            const elapsed = Math.floor((Date.now() - savedOrderTs) / 1000);
-            if (elapsed < 1200) {
-              setOrderId(savedOrderId);
-              setActiveOrderTimestamp(savedOrderTs);
-            } else {
-              storage.removeItem(`activeOrderId_${data.id}`);
-              storage.removeItem(`activeOrderTimestamp_${data.id}`);
-            }
-          }
-        }
+        // NOTE: We no longer manually check userToken/userData here.
+        // It's handled by the onIdTokenChanged listener above.
 
         // 2. Check Location Data
         const savedLocation = storage.getObject<{ latitude: number; longitude: number }>('locationData');
@@ -408,6 +424,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    auth().signOut();
     storage.removeItem('userToken');
     storage.removeItem('userData');
     storage.removeItem('locationData');
@@ -421,10 +438,6 @@ function App() {
     setActiveOrder(null);
     setActiveOrderTimestamp(null);
   };
-
-  if (loading) {
-    return <SplashScreen />;
-  }
 
   // Determine which screen to show
   const renderContent = () => {

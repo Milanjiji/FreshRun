@@ -156,14 +156,14 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
         );
 
         if (response.data.success) {
-          const { token, user } = response.data;
+          const { user } = response.data;
           console.log('Backend login success');
           
-          // Store JWT
-          storage.setItem('userToken', token);
+          // Store Firebase ID Token as the session token
+          storage.setItem('userToken', idToken);
           storage.setItem('userData', user);
           
-          onLoginSuccess(token, user);
+          onLoginSuccess(idToken, user);
         } else {
           throw new Error(response.data.error || 'Backend authentication failed');
         }
