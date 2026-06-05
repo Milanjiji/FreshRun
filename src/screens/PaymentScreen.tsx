@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   StatusBar,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
+import { Alertt } from '../components/Alertt';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
@@ -34,7 +34,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
 
   const handleConfirmOrder = () => {
     if (cartItems.length === 0) {
-      Alert.alert('Error', 'Cart is empty');
+      Alertt.alert('Error', 'Cart is empty');
       return;
     }
     // Instantly transition to the new OrderConfirmingScreen

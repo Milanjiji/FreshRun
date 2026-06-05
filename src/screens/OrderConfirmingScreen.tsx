@@ -5,7 +5,6 @@ import {
   StyleSheet,
   StatusBar,
   ActivityIndicator,
-  Alert,
   Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -114,13 +113,13 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
             if (isMounted) onSuccess(data.order.id, data.order);
           }, 2000);
         } else {
-          Alert.alert('Error', data.error || 'Failed to place order');
+          Alertt.alert('Error', data.error || 'Failed to place order');
           onFailure();
         }
       } catch (error) {
         if (!isMounted) return;
         console.error('❌ [OrderPlacement] Error placing order:', error);
-        Alert.alert('Error', 'Something went wrong while placing the order.');
+        Alertt.alert('Error', 'Something went wrong while placing the order.');
         onFailure();
       }
     };
@@ -225,3 +224,4 @@ const styles = StyleSheet.create({
 });
 
 export default OrderConfirmingScreen;
+port default OrderConfirmingScreen;

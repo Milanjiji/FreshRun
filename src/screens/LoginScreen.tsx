@@ -1,23 +1,23 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Image,
   ScrollView,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+  } from 'react-native';
+  import { Alertt } from '../components/Alertt';
+  import { SafeAreaView } from 'react-native-safe-area-context';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import axios from 'axios';
 import { storage } from '../utils/storage';
 import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
 import { Fonts } from '../theme/typography';
+import { Alertt } from '../components/Alertt';
 
 // Replace with your actual backend URL
 import { API_BASE_URL } from '../config/api';
@@ -92,7 +92,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
     try {
       const sanitizedPhone = phoneNumber.replace(/\D/g, '');
       if (!sanitizedPhone || sanitizedPhone.length < 10) {
-        Alert.alert('Error', 'Please enter a valid 10-digit phone number');
+        Alertt.alert('Error', 'Please enter a valid 10-digit phone number');
         return;
       }
 
@@ -110,7 +110,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
       setConfirm(confirmation);
     } catch (error: any) {
       console.error('Send OTP Error details:', error);
-      Alert.alert('Login Failed', getAuthErrorMessage(error, 'Could not send OTP'));
+      Alertt.alert('Login Failed', getAuthErrorMessage(error, 'Could not send OTP'));
     } finally {
       setLoading(false);
     }
@@ -119,7 +119,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
   // STEP 2: Verify OTP and Call Backend
   const confirmCode = async () => {
     if (!code || code.length < 6) {
-      Alert.alert('Error', 'Please enter a 6-digit code');
+      Alertt.alert('Error', 'Please enter a 6-digit code');
       return;
     }
 
@@ -173,7 +173,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
       const message = axios.isAxiosError(error)
         ? error.response?.data?.error || error.message || 'Backend authentication failed'
         : getAuthErrorMessage(error, 'Invalid OTP');
-      Alert.alert('Verification Failed', message);
+      Alertt.alert('Verification Failed', message);
     } finally {
       setLoading(false);
     }

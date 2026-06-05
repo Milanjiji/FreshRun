@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   Platform,
   PermissionsAndroid,
   Image,
@@ -18,6 +17,37 @@ import { PrimaryButton } from '../components/Button';
 import LocationDisclosureModal from '../components/LocationDisclosureModal';
 import { Fonts } from '../theme/typography';
 
+const DEFAULT_LOCATION = {
+  latitude: 11.2588,
+  longitude: 75.7804,
+};
+
+const QUICK_LOCATION_OPTIONS = {
+  enableHighAccuracy: false,
+  timeout: 8000,
+  maximumAge: 60000,
+};
+
+const PRECISE_LOCATION_OPTIONS = {
+  enableHighAccuracy: true,
+  timeout: 25000,
+  maximumAge: 10000,
+};
+
+const getCurrentPosition = (
+  options: { enableHighAccuracy: boolean; timeout: number; maximumAge: number }
+) =>
+  new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+    Geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        resolve({ latitude, longitude });
+      },
+      reject,
+      options
+    );
+  });
+
 interface LocationScreenProps {
   onLocationSuccess: (location: { latitude: number; longitude: number }) => void;
   existingLocation?: { latitude: number; longitude: number } | null;
@@ -28,10 +58,14 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDisclosure, setShowDisclosure] = useState(false);
-  const [fetchedLocation, setFetchedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [fetchedLocation, setFetchedLocation] = useState<{ latitude: number; longitude: number }>(
+    existingLocation ?? DEFAULT_LOCATION
+  );
+  const [canConfirmLocation, setCanConfirmLocation] = useState(Boolean(existingLocation));
   const [mapReady, setMapReady] = useState(false);
   const mapRef = useRef<MapView>(null);
   const autoFetchStartedRef = useRef(false);
+  const userMovedMapRef = useRef(false);
   const transitionAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -70,6 +104,21 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     outputRange: [0.9, 1],
   });
 
+  const hasLocationPermission = useCallback(async () => {
+    if (Platform.OS === 'ios') {
+      return true;
+    }
+
+    const hasFineLocation = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+    );
+    const hasCoarseLocation = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION
+    );
+
+    return hasFineLocation || hasCoarseLocation;
+  }, []);
+
   const requestLocationPermission = useCallback(async () => {
     if (Platform.OS === 'ios') {
       // iOS permission is handled by the library when calling getCurrentPosition
@@ -77,15 +126,12 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     }
 
     try {
-      // Check if already granted first
-      const alreadyGranted = await PermissionsAndroid.check(
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-      );
+      const alreadyGranted = await hasLocationPermission();
       if (alreadyGranted) {
         return true;
       }
 
-      const granted = await PermissionsAndroid.request(
+      await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         {
           title: 'Location Permission',
@@ -95,12 +141,18 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
           buttonPositive: 'OK',
         }
       );
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
+
+      if (await hasLocationPermission()) {
+        return true;
+      }
+
+      await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION);
+      return hasLocationPermission();
     } catch (err) {
       console.warn(err);
       return false;
     }
-  }, []);
+  }, [hasLocationPermission]);
 
   const animateToLocation = useCallback((location: { latitude: number; longitude: number }) => {
     mapRef.current?.animateToRegion({
@@ -110,20 +162,45 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     }, 350);
   }, []);
 
+  const applyResolvedLocation = useCallback((location: { latitude: number; longitude: number }) => {
+    console.log('Location obtained:', location.latitude, location.longitude);
+    setFetchedLocation(location);
+    setCanConfirmLocation(true);
+    setError(null);
+    if (mapReady) {
+      animateToLocation(location);
+    }
+  }, [animateToLocation, mapReady]);
+
+  const proceedWithLocationFetch = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const location = await getCurrentPosition(QUICK_LOCATION_OPTIONS);
+      applyResolvedLocation(location);
+    } catch (quickError) {
+      console.warn('Quick location fetch failed, trying precise GPS:', quickError);
+
+      try {
+        const location = await getCurrentPosition(PRECISE_LOCATION_OPTIONS);
+        applyResolvedLocation(location);
+      } catch (preciseError: any) {
+        console.error('Location Error:', preciseError);
+        setError('GPS timed out. Move the map pin to your location, or tap Try again.');
+        setCanConfirmLocation(current => current || Boolean(existingLocation));
+        Alertt.alert('Location Error', 'GPS timed out. You can move the map pin manually or try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [applyResolvedLocation, existingLocation]);
+
   const getLocation = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    // Check if permission is already granted
-    let hasPermission = false;
-    if (Platform.OS === 'ios') {
-       hasPermission = true;
-    } else {
-       hasPermission = await PermissionsAndroid.check(
-         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-       );
-    }
-
+    const hasPermission = await hasLocationPermission();
     if (!hasPermission) {
       setLoading(false);
       setShowDisclosure(true);
@@ -131,7 +208,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     }
 
     proceedWithLocationFetch();
-  }, []);
+  }, [hasLocationPermission, proceedWithLocationFetch]);
 
   const handleDisclosureAccept = async () => {
     setShowDisclosure(false);
@@ -147,35 +224,14 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
 
   const handleDisclosureDecline = () => {
     setShowDisclosure(false);
-    setError('Location permission is required to find nearby stores.');
+    setError('Location permission is required to detect your location. You can still move the map pin manually.');
   };
-
-  const proceedWithLocationFetch = useCallback(() => {
-    Geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        console.log('Location obtained:', latitude, longitude);
-        const location = { latitude, longitude };
-        setFetchedLocation(location);
-        if (mapReady) {
-          animateToLocation(location);
-        }
-        setLoading(false);
-      },
-      (err) => {
-        console.error('Location Error:', err);
-        setError(err.message || 'Could not fetch location');
-        setLoading(false);
-        Alert.alert('Location Error', 'Unable to fetch your location. Please ensure GPS is enabled.');
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-    );
-  }, [animateToLocation, mapReady]);
 
   useEffect(() => {
     // If we have an existing location from storage, treat it as "fetched" initially.
     if (existingLocation) {
       setFetchedLocation(existingLocation);
+      setCanConfirmLocation(true);
     }
   }, [existingLocation]);
 
@@ -187,9 +243,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
       autoFetchStartedRef.current = true;
 
       if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.check(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-        );
+        const granted = await hasLocationPermission();
         if (granted) {
           getLocation();
         }
@@ -202,13 +256,34 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     };
 
     checkAndAutoFetch();
-  }, [getLocation]);
+  }, [getLocation, hasLocationPermission]);
 
   const handleRegionChangeComplete = (region: Region) => {
     setFetchedLocation({
       latitude: region.latitude,
       longitude: region.longitude,
     });
+    if (userMovedMapRef.current) {
+      setCanConfirmLocation(true);
+      setError(null);
+    }
+  };
+
+  const handleMapPress = (coordinate: { latitude: number; longitude: number }) => {
+    userMovedMapRef.current = true;
+    setFetchedLocation(coordinate);
+    setCanConfirmLocation(true);
+    setError(null);
+    animateToLocation(coordinate);
+  };
+
+  const handleConfirmLocation = () => {
+    if (!canConfirmLocation) {
+      setError('Move the map pin to your location before confirming.');
+      return;
+    }
+
+    onLocationSuccess(fetchedLocation);
   };
 
   return (
@@ -231,32 +306,34 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
             />
           </Animated.View>
           
-          {fetchedLocation && (
-            <Animated.View style={[
-              styles.mapWrapper,
-              { opacity: mapOpacity, transform: [{ scale: mapScale }] }
-            ]}>
-              <MapView
-                ref={mapRef}
-                provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-                style={styles.map}
-                initialRegion={{
-                  ...fetchedLocation,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                }}
-                onMapReady={() => {
-                  setMapReady(true);
-                  animateToLocation(fetchedLocation);
-                }}
-                onRegionChangeComplete={handleRegionChangeComplete}
-              />
-              <View style={styles.centerMarkerContainer} pointerEvents="none">
-                <View style={styles.centerMarker} />
-                <View style={styles.centerMarkerStem} />
-              </View>
-            </Animated.View>
-          )}
+          <Animated.View style={[
+            styles.mapWrapper,
+            { opacity: mapOpacity, transform: [{ scale: mapScale }] }
+          ]}>
+            <MapView
+              ref={mapRef}
+              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+              style={styles.map}
+              initialRegion={{
+                ...fetchedLocation,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01,
+              }}
+              onMapReady={() => {
+                setMapReady(true);
+                animateToLocation(fetchedLocation);
+              }}
+              onPanDrag={() => {
+                userMovedMapRef.current = true;
+              }}
+              onPress={event => handleMapPress(event.nativeEvent.coordinate)}
+              onRegionChangeComplete={handleRegionChangeComplete}
+            />
+            <View style={styles.centerMarkerContainer} pointerEvents="none">
+              <View style={styles.centerMarker} />
+              <View style={styles.centerMarkerStem} />
+            </View>
+          </Animated.View>
 
           <Animated.View style={[
             styles.textContainer,
@@ -273,17 +350,17 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
             </PageSubtitle>
           </Animated.View>
 
-          {fetchedLocation && (
-            <Animated.View style={[
-              styles.locationInfo,
-              { opacity: mapOpacity }
-            ]}>
-              <Text style={styles.locationFoundTitle}>Location Pinpointed</Text>
-              <Text style={styles.coordinatesText}>
-                {fetchedLocation.latitude.toFixed(4)}, {fetchedLocation.longitude.toFixed(4)}
-              </Text>
-            </Animated.View>
-          )}
+          <Animated.View style={[
+            styles.locationInfo,
+            { opacity: mapOpacity }
+          ]}>
+            <Text style={styles.locationFoundTitle}>
+              {canConfirmLocation ? 'Location Selected' : 'Move Map Pin'}
+            </Text>
+            <Text style={styles.coordinatesText}>
+              {fetchedLocation.latitude.toFixed(4)}, {fetchedLocation.longitude.toFixed(4)}
+            </Text>
+          </Animated.View>
 
           {error && (
             <Text style={styles.errorText}>{error}</Text>
@@ -292,8 +369,8 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
 
       <View style={styles.buttonContainer}>
           <PrimaryButton 
-            title={loading ? "Finding..." : fetchedLocation ? "Confirm & Proceed" : "Find My Location"}
-            onPress={fetchedLocation && !loading ? () => onLocationSuccess(fetchedLocation) : getLocation}
+            title={loading ? "Finding..." : canConfirmLocation ? "Confirm & Proceed" : "Find My Location"}
+            onPress={canConfirmLocation ? handleConfirmLocation : getLocation}
             loading={loading}
           />
           
@@ -453,6 +530,10 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     textAlign: 'center',
   },
+});
+
+export default LocationScreen;
+
 });
 
 export default LocationScreen;

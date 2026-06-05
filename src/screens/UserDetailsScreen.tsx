@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,6 +11,7 @@ import {
   ActivityIndicator,
   Linking,
 } from 'react-native';
+import { Alertt } from '../components/Alertt';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import { storage } from '../utils/storage';
@@ -85,7 +85,7 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
 
   const handleSave = async () => {
     if (!fullName.trim() || !email.trim() || !addressLine.trim() || !houseNumber.trim() || !pincode.trim()) {
-      Alert.alert('Error', 'Please fill in all required fields');
+      Alertt.alert('Error', 'Please fill in all required fields');
       return;
     }
 
@@ -148,7 +148,7 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
       }
     } catch (error: any) {
       const message = error.response?.data?.error || 'Failed to save address';
-      Alert.alert('Error', message);
+      Alertt.alert('Error', message);
     } finally {
       setLoading(false);
     }

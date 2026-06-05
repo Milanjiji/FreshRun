@@ -88,7 +88,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
 
   const handleDeleteAccount = () => {
     setMenuVisible(false);
-    Alert.alert(
+    Alertt.alert(
       'Delete Account',
       'Are you absolutely sure you want to delete your account? This action cannot be undone and all your data, including order history, will be permanently erased.',
       [
@@ -101,18 +101,20 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
               const response = await fetch(`${API_BASE_URL}/user/account`, {
                 method: 'DELETE',
                 headers: {
+                  'Content-Type': 'application/json',
                   'Authorization': `Bearer ${userToken}`,
                 },
+                body: JSON.stringify({ role: 'customer' }),
               });
               const data = await response.json();
               if (data.success) {
                 onLogout(); // This will clear storage and sign out
               } else {
-                Alert.alert('Error', data.error || 'Failed to delete account');
+                Alertt.alert('Error', data.error || 'Failed to delete account');
               }
             } catch (error) {
               console.error('Delete account error:', error);
-              Alert.alert('Error', 'Something went wrong. Please try again later.');
+              Alertt.alert('Error', 'Something went wrong. Please try again later.');
             }
           }
         }
@@ -531,6 +533,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#444',
     marginHorizontal: 8,
   },
+});
+
+export default AccountScreen;
 });
 
 export default AccountScreen;

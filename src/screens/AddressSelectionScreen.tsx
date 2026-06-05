@@ -8,7 +8,6 @@ import {
   ScrollView,
   StatusBar,
   ActivityIndicator,
-  Alert,
   Modal,
   TouchableWithoutFeedback,
 } from 'react-native';
@@ -171,7 +170,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
         }
       }
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.error || 'Failed to select address');
+      Alertt.alert('Error', error.response?.data?.error || 'Failed to select address');
     } finally {
       setSelectingId(null);
     }
@@ -179,7 +178,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
 
   const handleDeleteAddress = (addressId: string) => {
     setActiveMenuId(null);
-    Alert.alert(
+    Alertt.alert(
       'Delete Address',
       'Are you sure you want to delete this address?',
       [
@@ -196,7 +195,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
                 fetchAddresses();
               }
             } catch (error: any) {
-              Alert.alert('Error', error.response?.data?.error || 'Failed to delete address');
+              Alertt.alert('Error', error.response?.data?.error || 'Failed to delete address');
             }
           }
         }
@@ -420,3 +419,4 @@ const styles = StyleSheet.create({
 });
 
 export default AddressSelectionScreen;
+rt default AddressSelectionScreen;

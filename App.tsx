@@ -5,7 +5,6 @@ import {
   Text,
   Platform,
   PermissionsAndroid,
-  Alert,
 } from 'react-native';
 import io from 'socket.io-client';
 import messaging from '@react-native-firebase/messaging';
@@ -40,6 +39,24 @@ import { API_BASE_URL } from './src/config/api';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import auth from '@react-native-firebase/auth';
+import appCheck from '@react-native-firebase/app-check';
+
+// Initialize App Check
+const rnfbProvider = appCheck().newReactNativeFirebaseAppCheckProvider();
+rnfbProvider.configure({
+  android: {
+    provider: 'playIntegrity',
+  },
+  apple: {
+    provider: 'deviceCheck',
+  },
+});
+
+appCheck().initializeAppCheck({
+  provider: rnfbProvider,
+  isTokenAutoRefreshEnabled: true,
+});
+// App Check is separate from Firebase Auth phone-number app verification.
 
 function App() {
   const [userToken, setUserToken] = useState<string | null>(null);
@@ -769,7 +786,7 @@ function App() {
           onPress={() => {
             const hasRunningOrder = orderId && activeOrder && activeOrder?.status !== 'delivered' && activeOrder?.status !== 'declined' && !activeOrder?.is_completed;
             if (hasRunningOrder) {
-              Alert.alert('Order in Progress', 'You already have an active order. Please wait until it is completed before placing a new one.');
+              Alertt.alert('Order in Progress', 'You already have an active order. Please wait until it is completed before placing a new one.');
               return;
             }
             setShowCart(true);
@@ -815,6 +832,7 @@ function App() {
             {renderContent()}
           </>
         )}
+        <CustomAlert />
       </View>
     </SafeAreaProvider>
   );
@@ -850,6 +868,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: Fonts.bold,
     fontWeight: 'bold',
+  },
+});
+
+export default App;
   },
 });
 
