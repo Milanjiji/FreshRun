@@ -9,15 +9,17 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
+import { formatDeliveryTime } from '../utils/distance';
 
 interface HomeHeaderProps {
   onAddressPress?: () => void;
   onProfilePress?: () => void;
   onProfileLongPress?: () => void;
   userData?: any;
+  avgTime?: number;
 }
 
-const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress, onProfileLongPress, userData }) => {
+const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress, onProfileLongPress, userData, avgTime }) => {
   const displayAddress = userData?.addressLine 
     ? `${userData.houseNumber ? userData.houseNumber + ', ' : ''}${userData.addressLine}`
     : "Set your delivery address";
@@ -27,7 +29,7 @@ const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress,
       {/* Top Section: Stacked Time/Address (Left) and Profile (Right) */}
       <View style={styles.topSection}>
         <View style={styles.leftInfo}>
-          <Text style={styles.timeText}>20 mins</Text>
+          <Text style={styles.timeText}>{formatDeliveryTime(avgTime || 20)}</Text>
           <TouchableOpacity style={styles.addressContainer} onPress={onAddressPress}>
             <Text style={styles.addressLabel} numberOfLines={1}>
               To Main Address: <Text style={styles.addressValue}>{displayAddress}</Text>
@@ -69,11 +71,12 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontFamily: Fonts.black,
     lineHeight: 26,
+    marginBottom: 4,
   },
   addressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: -4,
+    marginTop: 0,
   },
   addressLabel: {
     color: Colors.white,

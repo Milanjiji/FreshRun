@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   StatusBar,
   Modal,
   ScrollView,
@@ -13,11 +12,13 @@ import {
   Animated,
   PanResponder,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import io from 'socket.io-client';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { API_BASE_URL } from '../config/api';
+import { storage } from '../utils/storage';
 import LiveMap from '../components/LiveMap';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -51,11 +52,10 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
   const [orderError, setOrderError] = useState<string | null>(null);
   const [storeCoords, setStoreCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
   const socketRef = useRef<any>(null);
 
   // DRAGGABLE BOTTOM SHEET LOGIC
-  const INITIAL_SHEET_HEIGHT = SCREEN_HEIGHT * 0.3;
+  const INITIAL_SHEET_HEIGHT = SCREEN_HEIGHT * 0.4;
   const sheetHeight = useRef(new Animated.Value(INITIAL_SHEET_HEIGHT)).current;
   const lastSheetHeight = useRef(INITIAL_SHEET_HEIGHT);
 
@@ -64,13 +64,12 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
       onStartShouldSetPanResponder: () => true,
       onPanResponderMove: (evt, gestureState) => {
         const newHeight = lastSheetHeight.current - gestureState.dy;
-        // Limit height between 15% and 85% of screen
-        if (newHeight > SCREEN_HEIGHT * 0.15 && newHeight < SCREEN_HEIGHT * 0.85) {
+        // Limit height between 25% and 90% of screen
+        if (newHeight > SCREEN_HEIGHT * 0.25 && newHeight < SCREEN_HEIGHT * 0.90) {
           sheetHeight.setValue(newHeight);
         }
       },
       onPanResponderRelease: (evt, gestureState) => {
-        // Sync raw value
         lastSheetHeight.current = (sheetHeight as any)._value;
       },
     })
@@ -134,37 +133,58 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
   // Use a screen-level socket so historical order views subscribe to their own order room.
   useEffect(() => {
     if (!orderId) {
+      console.log('[OrderTracking] No orderId provided, skipping socket.');
       return;
     }
 
+    console.log('[OrderTracking] Initializing socket connection for order:', orderId);
     socketRef.current = io(API_BASE_URL);
 
-    socketRef.current.on('connect', () => {
+    const joinRoom = () => {
+      console.log('[OrderTracking] Joining room:', `order_${orderId}`);
       socketRef.current?.emit('join_room', `order_${orderId}`);
+    };
+
+    socketRef.current.on('connect', () => {
+      console.log('[OrderTracking] Socket connected!');
+      joinRoom();
     });
 
+    // If already connected, join immediately
+    if (socketRef.current.connected) {
+      joinRoom();
+    }
+
     socketRef.current.on('delivery_location_updated', (data: any) => {
+      console.log('[OrderTracking] Received location update:', data);
       const lat = parseCoordinate(data.latitude);
       const lng = parseCoordinate(data.longitude);
-      if (data.orderId === orderId && lat !== null && lng !== null) {
+      // Use loose equality or cast to handle string/number mismatch
+      if (String(data.orderId) === String(orderId) && lat !== null && lng !== null) {
         setDriverCoords({ lat, lng });
       }
     });
 
     socketRef.current.on('order_status_changed', (updatedOrder: any) => {
-      if (updatedOrder?.id === orderId) {
+      console.log('[OrderTracking] Received status update:', updatedOrder.status);
+      if (String(updatedOrder?.id) === String(orderId)) {
         setTrackedOrder(updatedOrder);
       }
     });
 
+    socketRef.current.on('connect_error', (err) => {
+      console.warn('[OrderTracking] Socket connection error:', err.message);
+    });
+
     return () => {
       if (socketRef.current) {
+        console.log('[OrderTracking] Disconnecting socket for order:', orderId);
         socketRef.current.disconnect();
       }
     };
-  }, [orderId]);
+    }, [orderId]);
 
-  useEffect(() => {
+    useEffect(() => {
     const fetchStoreLocation = async () => {
       setStoreCoords(null);
       const lat = parseCoordinate(trackedOrder?.store_lat);
@@ -176,6 +196,16 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
       }
 
       if (trackedOrder?.store_id) {
+        // 1. Check local cache first
+        const cacheKey = `store_coords_${trackedOrder.store_id}`;
+        const cachedCoords = storage.getObject<{ lat: number; lng: number }>(cacheKey);
+        
+        if (cachedCoords) {
+          console.log('[OrderTracking] Using cached store coordinates');
+          setStoreCoords(cachedCoords);
+          return;
+        }
+
         try {
           const response = await fetch(`${API_BASE_URL}/stores/${trackedOrder.store_id}`);
           const data = await response.json();
@@ -183,7 +213,10 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
             const fallbackLat = parseCoordinate(data.data.latitude);
             const fallbackLng = parseCoordinate(data.data.longitude);
             if (fallbackLat !== null && fallbackLng !== null) {
-              setStoreCoords({ lat: fallbackLat, lng: fallbackLng });
+              const coords = { lat: fallbackLat, lng: fallbackLng };
+              setStoreCoords(coords);
+              // Save to cache for future use
+              storage.setItem(cacheKey, coords);
             }
           }
         } catch (error) {
@@ -214,110 +247,20 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
     userLat !== null &&
     userLng !== null;
 
-  const renderDetailsModal = () => (
-    <Modal
-      visible={showDetails}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={() => setShowDetails(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Order Summary</Text>
-            <TouchableOpacity onPress={() => setShowDetails(false)} style={styles.closeBtn}>
-              <Icon name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScroll}>
-            <View style={styles.detailSection}>
-              <Text style={styles.sectionHeading}>Store Info</Text>
-              <View style={styles.infoCard}>
-                 <Icon name="basket" size={20} color={Colors.primary} />
-                 <View style={{ marginLeft: 12 }}>
-                    <Text style={styles.infoTitle}>{trackedOrder?.store_name || "FreshRun Partner Store"}</Text>
-                    <Text style={styles.infoSub}>Order ID: #{orderId?.split('-')[0].toUpperCase()}</Text>
-                 </View>
-              </View>
-            </View>
-
-            <View style={styles.detailSection}>
-              <Text style={styles.sectionHeading}>Delivery Partner</Text>
-              <View style={styles.infoCard}>
-                 <View style={styles.partnerAvatar}>
-                    <Icon name="person" size={20} color="#fff" />
-                 </View>
-                 <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={styles.infoTitle}>Rahul Kumar</Text>
-                    <Text style={styles.infoSub}>FreshRun Delivery Partner</Text>
-                 </View>
-                 <TouchableOpacity style={styles.callBtn}>
-                    <Icon name="call" size={18} color="#fff" />
-                 </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.detailSection}>
-              <Text style={styles.sectionHeading}>Bill Details</Text>
-              <View style={styles.billCard}>
-                 {trackedOrder?.items?.map((item: any, idx: number) => (
-                    <View key={idx} style={styles.billRow}>
-                       <Text style={styles.billLabel}>{item.quantity}x {item.name}</Text>
-                       <Text style={styles.billValue}>₹{(item.price * item.quantity).toFixed(2)}</Text>
-                    </View>
-                 ))}
-                 
-                 <View style={styles.divider} />
-                 
-                 <View style={styles.billRow}>
-                    <Text style={styles.billLabel}>Item Total</Text>
-                    <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.subtotal || 0).toFixed(2)}</Text>
-                 </View>
-                 <View style={styles.billRow}>
-                    <Text style={styles.billLabel}>Delivery Fee</Text>
-                    <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.delivery_fee || 0).toFixed(2)}</Text>
-                 </View>
-                 {parseFloat(trackedOrder?.late_night_fee) > 0 && (
-                   <View style={styles.billRow}>
-                      <Text style={styles.billLabel}>Late Night Fee</Text>
-                      <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.late_night_fee).toFixed(2)}</Text>
-                   </View>
-                 )}
-                 
-                 <View style={[styles.billRow, { marginTop: 10 }]}>
-                    <Text style={styles.totalLabel}>Total Amount</Text>
-                    <Text style={styles.totalValue}>₹{parseFloat(trackedOrder?.total_amount || 0).toFixed(2)}</Text>
-                 </View>
-              </View>
-            </View>
-
-            <View style={styles.detailSection}>
-              <Text style={styles.sectionHeading}>Delivery At</Text>
-              <View style={styles.infoCard}>
-                 <Icon name="location" size={20} color="#FF3B30" />
-                 <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={styles.infoTitle}>{trackedOrder?.delivery_address?.saveAs || "Home"}</Text>
-                    <Text style={styles.infoSub}>{trackedOrder?.delivery_address?.line1}</Text>
-                 </View>
-              </View>
-            </View>
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-
   const getStatusDisplay = () => {
     const status = trackedOrder?.status;
     if (!status || status === 'pending') return 'Confirmed';
     return status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ');
   };
 
+  const isPacked = trackedOrder?.is_packed || ['packed', 'ready', 'assigned', 'out_for_delivery', 'delivered'].includes(trackedOrder?.status);
+  const isAssigned = trackedOrder?.delivery_boy_opted || ['assigned', 'out_for_delivery', 'delivered'].includes(trackedOrder?.status);
+  const isOutForDelivery = trackedOrder?.is_given_to_delivery_boy || ['out_for_delivery', 'delivered'].includes(trackedOrder?.status);
+  const isDelivered = trackedOrder?.is_completed || trackedOrder?.status === 'delivered';
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      {renderDetailsModal()}
       
       {/* Interactive Map (Flex: 1 fills remaining area) */}
       <View style={styles.mapContainer}>
@@ -350,8 +293,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
         </SafeAreaView>
 
         <View style={styles.timeTag}>
-          <Text style={styles.timeTagText}>{getStatusDisplay()}</Text>
-          <Text style={styles.timeTagSub}>Order Status</Text>
+          <Text style={styles.timeTagText}>{getStatusDisplay().toUpperCase()}</Text>
         </View>
       </View>
 
@@ -364,42 +306,132 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
         <ScrollView 
           showsVerticalScrollIndicator={false}
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 20 }}
+          contentContainerStyle={{ paddingBottom: 40 }}
         >
-          <Text style={styles.statusTitle}>Order Tracking</Text>
-          <Text style={styles.statusDesc}>Track your order status and delivery partner live on the map.</Text>
+          <View style={{ marginBottom: 20 }}>
+            <Text style={styles.statusTitle}>Order Tracking</Text>
+            <Text style={styles.statusDesc}>Track your order status and delivery partner live on the map.</Text>
+          </View>
           
           <View style={styles.trackingSteps}>
             <View style={styles.step}>
                <View style={[styles.stepDot, styles.stepDotActive]} />
                <Text style={styles.stepTextActive}>Confirmed</Text>
             </View>
-            <View style={[styles.stepLine, trackedOrder?.is_packed && styles.stepDotActive]} />
+            <View style={[styles.stepLine, isPacked && styles.stepDotActive]} />
             
             <View style={styles.step}>
-               <View style={[styles.stepDot, trackedOrder?.is_packed && styles.stepDotActive]} />
-               <Text style={trackedOrder?.is_packed ? styles.stepTextActive : styles.stepText}>Packed</Text>
+               <View style={[styles.stepDot, isPacked && styles.stepDotActive]} />
+               <Text style={isPacked ? styles.stepTextActive : styles.stepText}>Packed</Text>
             </View>
-            <View style={[styles.stepLine, trackedOrder?.delivery_boy_opted && styles.stepDotActive]} />
+            <View style={[styles.stepLine, isAssigned && styles.stepDotActive]} />
             
             <View style={styles.step}>
-               <View style={[styles.stepDot, trackedOrder?.delivery_boy_opted && styles.stepDotActive]} />
-               <Text style={trackedOrder?.delivery_boy_opted ? styles.stepTextActive : styles.stepText}>Assigned</Text>
+               <View style={[styles.stepDot, isAssigned && styles.stepDotActive]} />
+               <Text style={isAssigned ? styles.stepTextActive : styles.stepText}>Assigned</Text>
             </View>
-            <View style={[styles.stepLine, trackedOrder?.is_given_to_delivery_boy && styles.stepDotActive]} />
+            <View style={[styles.stepLine, isOutForDelivery && styles.stepDotActive]} />
             
             <View style={styles.step}>
-               <View style={[styles.stepDot, trackedOrder?.is_completed && styles.stepDotActive]} />
-               <Text style={trackedOrder?.is_completed ? styles.stepTextActive : styles.stepText}>Delivered</Text>
+               <View style={[styles.stepDot, isDelivered && styles.stepDotActive]} />
+               <Text style={isDelivered ? styles.stepTextActive : styles.stepText}>Delivered</Text>
             </View>
           </View>
-          
-          <View style={styles.orderInfoCard}>
-            <Text style={styles.orderIdText}>Order #{orderId?.split('-')[0].toUpperCase()}</Text>
-            <TouchableOpacity onPress={() => setShowDetails(true)}>
-               <Text style={styles.viewDetailsText}>View details</Text>
-            </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          {trackedOrder?.delivery_boy_opted && (
+            <View style={styles.detailSection}>
+              <Text style={styles.sectionHeading}>Delivery Partner</Text>
+              <View style={styles.infoCard}>
+                 <View style={styles.partnerAvatar}>
+                    <Icon name="person" size={20} color="#fff" />
+                 </View>
+                 <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={styles.infoTitle}>Rahul Kumar</Text>
+                    <Text style={styles.infoSub}>FreshRun Delivery Partner</Text>
+                 </View>
+                 <TouchableOpacity style={styles.callBtn}>
+                    <Icon name="call" size={18} color="#fff" />
+                 </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Combined Bill & Summary Details */}
+          <View style={styles.detailSection}>
+            <Text style={styles.sectionHeading}>Bill Details</Text>
+            <View style={styles.billCard}>
+               {trackedOrder?.items?.map((item: any, idx: number) => (
+                  <View key={idx} style={styles.billRow}>
+                     <Text style={styles.billLabel}>{item.quantity}x {item.name}</Text>
+                     <Text style={styles.billValue}>₹{(item.price * item.quantity).toFixed(2)}</Text>
+                  </View>
+               ))}
+               
+               <View style={styles.divider} />
+               
+               <View style={styles.billRow}>
+                  <Text style={styles.billLabel}>Item Total</Text>
+                  <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.subtotal || 0).toFixed(2)}</Text>
+               </View>
+               <View style={styles.billRow}>
+                  <Text style={styles.billLabel}>Delivery Fee</Text>
+                  <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.delivery_fee || 0).toFixed(2)}</Text>
+               </View>
+               {parseFloat(trackedOrder?.rainy_surge_fee) > 0 && (
+                 <View style={styles.billRow}>
+                    <Text style={styles.billLabel}>Rainy Surge Fee</Text>
+                    <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.rainy_surge_fee).toFixed(2)}</Text>
+                 </View>
+               )}
+               {parseFloat(trackedOrder?.late_night_fee) > 0 && (
+                 <View style={styles.billRow}>
+                    <Text style={styles.billLabel}>Late Night Fee</Text>
+                    <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.late_night_fee).toFixed(2)}</Text>
+                 </View>
+               )}
+               {parseFloat(trackedOrder?.delivery_tip) > 0 && (
+                 <View style={styles.billRow}>
+                    <Text style={styles.billLabel}>Delivery Tip</Text>
+                    <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.delivery_tip).toFixed(2)}</Text>
+                 </View>
+               )}
+               
+               <View style={[styles.billRow, { marginTop: 10 }]}>
+                  <Text style={styles.totalLabel}>Total Amount</Text>
+                  <Text style={styles.totalValue}>₹{(
+                    parseFloat(trackedOrder?.total_amount || 0) || 
+                    (parseFloat(trackedOrder?.subtotal || 0) + 
+                     parseFloat(trackedOrder?.delivery_fee || 0) + 
+                     parseFloat(trackedOrder?.rainy_surge_fee || 0) + 
+                     parseFloat(trackedOrder?.late_night_fee || 0) + 
+                     parseFloat(trackedOrder?.delivery_tip || 0) +
+                     parseFloat(trackedOrder?.handling_fee || 0))
+                  ).toFixed(2)}</Text>
+               </View>
+            </View>
           </View>
+
+          <View style={styles.detailSection}>
+            <Text style={styles.sectionHeading}>Order Details</Text>
+            <View style={styles.infoCard}>
+               <Icon name="basket" size={20} color={Colors.primary} />
+               <View style={{ marginLeft: 12 }}>
+                  <Text style={styles.infoTitle}>{trackedOrder?.store_name || "FreshRun Partner Store"}</Text>
+                  <Text style={styles.infoSub}>Order ID: #{orderId?.split('-')[0].toUpperCase()}</Text>
+               </View>
+            </View>
+
+            <View style={[styles.infoCard, { marginTop: 12 }]}>
+               <Icon name="location" size={20} color="#FF3B30" />
+               <View style={{ marginLeft: 12, flex: 1 }}>
+                  <Text style={styles.infoTitle}>{trackedOrder?.delivery_address?.saveAs || "Home"}</Text>
+                  <Text style={styles.infoSub}>{trackedOrder?.delivery_address?.line1}</Text>
+               </View>
+            </View>
+          </View>
+
         </ScrollView>
       </Animated.View>
     </View>
@@ -452,29 +484,23 @@ const styles = StyleSheet.create({
   },
   timeTag: {
     position: 'absolute',
-    bottom: 35,
+    bottom: 20,
     right: 20,
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 30,
+    backgroundColor: Colors.white,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#eee',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
+    justifyContent: 'center',
     zIndex: 15,
   },
   timeTagText: {
-    fontSize: 22,
+    fontSize: 11,
     fontFamily: Fonts.black,
     color: Colors.primary,
-  },
-  timeTagSub: {
-    fontSize: 12,
-    fontFamily: Fonts.medium,
-    color: '#888',
+    letterSpacing: 0.5,
   },
   bottomSheet: {
     backgroundColor: '#fff',

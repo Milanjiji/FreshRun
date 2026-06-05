@@ -2,11 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
+  Text,
   Platform,
   PermissionsAndroid,
+  Alert,
 } from 'react-native';
 import io from 'socket.io-client';
 import messaging from '@react-native-firebase/messaging';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { storage } from './src/utils/storage';
 import {
   requestNotificationPermission, 
@@ -26,12 +29,15 @@ import PaymentScreen from './src/screens/PaymentScreen';
 import OrderConfirmingScreen from './src/screens/OrderConfirmingScreen';
 import OrderTrackingScreen from './src/screens/OrderTrackingScreen';
 import OrderDeclinedScreen from './src/screens/OrderDeclinedScreen';
+import InfoScreen, { InfoType } from './src/screens/InfoScreen';
+import LoadingTransition from './src/components/LoadingTransition';
 import CartFooter from './src/components/CartFooter';
 import ActiveOrderWidget from './src/components/ActiveOrderWidget';
 
 import { Colors } from './src/theme/colors';
 import { Fonts } from './src/theme/typography';
 import { API_BASE_URL } from './src/config/api';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import auth from '@react-native-firebase/auth';
 
@@ -57,6 +63,16 @@ function App() {
           const currentData = storage.getObject<any>('userData');
           if (currentData) {
             setUserData(currentData);
+            if (currentData.currentAddressId || currentData.addressLine) {
+              setHasLocation(true);
+              // Populate locationData from user's saved address if available
+              if (currentData.currentAddressLatitude && currentData.currentAddressLongitude) {
+                setLocationData({
+                  latitude: parseFloat(currentData.currentAddressLatitude),
+                  longitude: parseFloat(currentData.currentAddressLongitude)
+                });
+              }
+            }
           }
         } catch (e) {
           console.error('[Auth] Error getting ID token:', e);
@@ -85,6 +101,7 @@ function App() {
   const [showOrderConfirming, setShowOrderConfirming] = useState(false);
   const [showOrderTracking, setShowOrderTracking] = useState(false);
   const [showOrderDeclined, setShowOrderDeclined] = useState(false);
+  const [showInfo, setShowInfo] = useState<InfoType | null>(null);
   const [isAddingNewAddress, setIsAddingNewAddress] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null);
@@ -93,6 +110,24 @@ function App() {
   const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<number>(0);
   const [checkoutDeliveryFee, setCheckoutDeliveryFee] = useState<number>(0);
   const [checkoutDeliveryTip, setCheckoutDeliveryTip] = useState<number>(0);
+  const [checkoutLateNightFee, setCheckoutLateNightFee] = useState<number>(0);
+  const [checkoutRainyFee, setCheckoutRainyFee] = useState<number>(0);
+  const [checkoutIsSelfPickup, setCheckoutIsSelfPickup] = useState<boolean>(false);
+  const [appSettings, setAppSettings] = useState<any>(null);
+
+  // Fetch Global App Settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings`);
+        const data = await res.json();
+        if (data.success) setAppSettings(data.data);
+      } catch (e) {
+        console.warn('Failed to fetch settings in App.tsx');
+      }
+    };
+    fetchSettings();
+  }, []);
 
   // FCM Setup
   useEffect(() => {
@@ -189,30 +224,39 @@ function App() {
   useEffect(() => {
     const checkAppState = async () => {
       try {
-        // NOTE: We no longer manually check userToken/userData here.
-        // It's handled by the onIdTokenChanged listener above.
-
-        // 2. Check Location Data
-        const savedLocation = storage.getObject<{ latitude: number; longitude: number }>('locationData');
-        
-        // 3. Check Location Permission
-        let permissionGranted = false;
-        if (Platform.OS === 'ios') {
-          permissionGranted = !!savedLocation;
-        } else {
-          permissionGranted = await PermissionsAndroid.check(
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-          );
-        }
-
-        if (savedLocation && permissionGranted) {
-          setLocationData(savedLocation);
+        // 1. Check if user already has a saved address in their profile
+        const currentData = storage.getObject<any>('userData');
+        if (currentData && (currentData.currentAddressId || currentData.addressLine)) {
           setHasLocation(true);
-        } else if (savedLocation) {
-          setLocationData(savedLocation);
+          // Populate locationData from user's saved address if available
+          if (currentData.currentAddressLatitude && currentData.currentAddressLongitude) {
+             setLocationData({
+                latitude: parseFloat(currentData.currentAddressLatitude),
+                longitude: parseFloat(currentData.currentAddressLongitude)
+             });
+          }
+        } else {
+          // 2. Otherwise, check Location Data and Permission
+          const savedLocation = storage.getObject<{ latitude: number; longitude: number }>('locationData');
+          
+          let permissionGranted = false;
+          if (Platform.OS === 'ios') {
+            permissionGranted = !!savedLocation;
+          } else {
+            permissionGranted = await PermissionsAndroid.check(
+              PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+            );
+          }
+
+          if (savedLocation && permissionGranted) {
+            setLocationData(savedLocation);
+            setHasLocation(true);
+          } else if (savedLocation) {
+            setLocationData(savedLocation);
+          }
         }
 
-        // 4. Load Cart
+        // 3. Load Cart
         const savedCart = storage.getObject<any[]>('cartItems');
         if (savedCart) {
           setCartItems(savedCart);
@@ -301,6 +345,11 @@ function App() {
         storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
       });
 
+      socketRef.current.on('settings_updated', (newSettings: any) => {
+        console.log('[Socket] Global settings updated');
+        setAppSettings(newSettings);
+      });
+
       socketRef.current.on('disconnect', () => {
         console.log('[Socket] Disconnected');
       });
@@ -325,6 +374,17 @@ function App() {
   useEffect(() => {
     if (userToken && userData?.id) {
       const fetchActiveOrder = async () => {
+        // 1. Load from cache first
+        const cachedOrder = storage.getObject<any>(`activeOrderObject_${userData.id}`);
+        if (cachedOrder) {
+          console.log('[OrderSync] Loading order from cache');
+          setActiveOrder(cachedOrder);
+          setOrderId(cachedOrder.id);
+          const ts = new Date(cachedOrder.created_at).getTime();
+          setActiveOrderTimestamp(ts);
+          if (cachedOrder.status === 'declined') setShowOrderDeclined(true);
+        }
+
         try {
           const res = await fetch(`${API_BASE_URL}/orders/active`, {
             headers: { Authorization: `Bearer ${userToken}` }
@@ -332,12 +392,15 @@ function App() {
           const data = await res.json();
           if (data.success && data.order) {
             setActiveOrder(data.order);
+            // Save full object to cache
+            storage.setItem(`activeOrderObject_${userData.id}`, data.order);
 
             if (data.order?.status === 'delivered' || data.order?.is_completed) {
               setOrderId(null);
               setActiveOrderTimestamp(null);
               storage.removeItem(`activeOrderId_${userData.id}`);
               storage.removeItem(`activeOrderTimestamp_${userData.id}`);
+              storage.removeItem(`activeOrderObject_${userData.id}`);
               setShowOrderDeclined(false);
               return;
             }
@@ -365,6 +428,7 @@ function App() {
             setActiveOrderTimestamp(null);
             storage.removeItem(`activeOrderId_${userData.id}`);
             storage.removeItem(`activeOrderTimestamp_${userData.id}`);
+            storage.removeItem(`activeOrderObject_${userData.id}`);
           }
         } catch (e) {
           console.error('Error fetching active order:', e);
@@ -517,6 +581,15 @@ function App() {
       );
     }
 
+    if (showInfo) {
+      return (
+        <InfoScreen 
+          type={showInfo}
+          onBack={() => setShowInfo(null)}
+        />
+      );
+    }
+
     if (showAccount) {
       return (
         <AccountScreen 
@@ -532,6 +605,9 @@ function App() {
             setSelectedTrackingOrderId(id);
             setShowAccount(false);
             setShowOrderTracking(true);
+          }}
+          onInfoPress={(type) => {
+             setShowInfo(type);
           }}
         />
       );
@@ -596,9 +672,12 @@ function App() {
           totalAmount={checkoutTotalAmount}
           deliveryFee={checkoutDeliveryFee}
           deliveryTip={checkoutDeliveryTip}
+          rainyFee={checkoutRainyFee}
+          lateNightFee={checkoutLateNightFee}
           userData={userData}
           locationData={locationData}
           userToken={userToken}
+          isSelfPickup={checkoutIsSelfPickup}
           onSuccess={(id, order) => {
             console.log('\n✅ [OrderPlacement] STEP 5: Order successfully completed and stored in local state. ID:', id);
             console.log('Order Details:', JSON.stringify(order, null, 2));
@@ -650,10 +729,14 @@ function App() {
           updateQuantity={updateQuantity}
           clearCart={clearCart}
           locationAddress={userData?.address?.line1}
-          onProceedToCheckout={(total, deliveryFee, deliveryTip) => {
+          socket={socketRef.current}
+          onProceedToCheckout={(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee) => {
             setCheckoutTotalAmount(total);
             setCheckoutDeliveryFee(deliveryFee);
             setCheckoutDeliveryTip(deliveryTip);
+            setCheckoutRainyFee(rainyFee);
+            setCheckoutLateNightFee(lateNightFee);
+            setCheckoutIsSelfPickup(!!isSelfPickup);
             setShowPayment(true);
           }}
         />
@@ -683,7 +766,14 @@ function App() {
         <CartFooter 
           itemCount={cartItemCount} 
           totalPrice={cartTotalPrice} 
-          onPress={() => setShowCart(true)} 
+          onPress={() => {
+            const hasRunningOrder = orderId && activeOrder && activeOrder?.status !== 'delivered' && activeOrder?.status !== 'declined' && !activeOrder?.is_completed;
+            if (hasRunningOrder) {
+              Alert.alert('Order in Progress', 'You already have an active order. Please wait until it is completed before placing a new one.');
+              return;
+            }
+            setShowCart(true);
+          }} 
           lastItemImage={lastItemImage}
         />
         
@@ -709,9 +799,24 @@ function App() {
   };
 
   return (
-    <View style={styles.container}>
-      {renderContent()}
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        {loading ? (
+          <LoadingTransition />
+        ) : (
+          <>
+            {appSettings?.is_rainy_condition && (
+              <SafeAreaView edges={['top']} style={styles.rainyBar}>
+                <Text style={styles.rainyText}>
+                    Rainy weather: <Text style={{ color: '#4A90E2' }}>Extra ₹{appSettings.rainy_condition_fee}</Text> will be added to delivery
+                </Text>
+              </SafeAreaView>
+            )}
+            {renderContent()}
+          </>
+        )}
+      </View>
+    </SafeAreaProvider>
   );
 }
 
@@ -719,6 +824,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.surface,
+  },
+  rainyBar: {
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  rainyText: {
+    color: '#333',
+    fontSize: 13,
+    fontFamily: Fonts.bold,
   },
   logoutText: {
     color: '#fff',

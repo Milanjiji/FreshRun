@@ -6,16 +6,16 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import io from 'socket.io-client';
 import { API_BASE_URL } from '../config/api';
 import { Colors } from '../theme/colors';
-
 import { Fonts } from '../theme/typography';
+import { getOptimizedImageUrl } from '../utils/image';
 
 interface StoreDetailsScreenProps {
   store: any;
@@ -105,7 +105,7 @@ const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({
           <View style={styles.storeBanner}>
             <View style={styles.imageContainer}>
               {store.image_url ? (
-                <Image source={{ uri: store.image_url }} style={[styles.storeImage, !store.is_active && { opacity: 0.6 }]} />
+                <Image source={{ uri: getOptimizedImageUrl(store.image_url, 600) }} style={[styles.storeImage, !store.is_active && { opacity: 0.6 }]} />
               ) : (
                 <View style={styles.placeholderImage}>
                   <Icon name="image-outline" size={50} color="#ccc" />
@@ -172,7 +172,7 @@ const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({
                   </View>
                   <View style={styles.productImageContainer}>
                     {product.image_url ? (
-                      <Image source={{ uri: product.image_url }} style={[styles.productImage, !product.is_active && { opacity: 0.5 }]} />
+                      <Image source={{ uri: getOptimizedImageUrl(product.image_url, 250) }} style={[styles.productImage, !product.is_active && { opacity: 0.5 }]} />
                     ) : (
                       <View style={styles.productPlaceholder}>
                         <Icon name="fast-food-outline" size={30} color="#eee" />

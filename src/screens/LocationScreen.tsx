@@ -5,16 +5,17 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  SafeAreaView,
   Platform,
   PermissionsAndroid,
   Image,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Geolocation from '@react-native-community/geolocation';
 import MapView, { PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
+import LocationDisclosureModal from '../components/LocationDisclosureModal';
 import { Fonts } from '../theme/typography';
 
 interface LocationScreenProps {
@@ -26,6 +27,7 @@ interface LocationScreenProps {
 const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, existingLocation, onBack }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDisclosure, setShowDisclosure] = useState(false);
   const [fetchedLocation, setFetchedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const mapRef = useRef<MapView>(null);
@@ -112,13 +114,43 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     setLoading(true);
     setError(null);
 
-    const hasPermission = await requestLocationPermission();
+    // Check if permission is already granted
+    let hasPermission = false;
+    if (Platform.OS === 'ios') {
+       hasPermission = true;
+    } else {
+       hasPermission = await PermissionsAndroid.check(
+         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+       );
+    }
+
     if (!hasPermission) {
+      setLoading(false);
+      setShowDisclosure(true);
+      return;
+    }
+
+    proceedWithLocationFetch();
+  }, []);
+
+  const handleDisclosureAccept = async () => {
+    setShowDisclosure(false);
+    setLoading(true);
+    const granted = await requestLocationPermission();
+    if (!granted) {
       setError('Location permission denied');
       setLoading(false);
       return;
     }
+    proceedWithLocationFetch();
+  };
 
+  const handleDisclosureDecline = () => {
+    setShowDisclosure(false);
+    setError('Location permission is required to find nearby stores.');
+  };
+
+  const proceedWithLocationFetch = useCallback(() => {
     Geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
@@ -138,7 +170,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
-  }, [animateToLocation, mapReady, requestLocationPermission]);
+  }, [animateToLocation, mapReady]);
 
   useEffect(() => {
     // If we have an existing location from storage, treat it as "fetched" initially.
@@ -258,7 +290,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
           )}
         </View>
 
-        <View style={styles.buttonContainer}>
+      <View style={styles.buttonContainer}>
           <PrimaryButton 
             title={loading ? "Finding..." : fetchedLocation ? "Confirm & Proceed" : "Find My Location"}
             onPress={fetchedLocation && !loading ? () => onLocationSuccess(fetchedLocation) : getLocation}
@@ -276,6 +308,12 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
           </TouchableOpacity>
         </View>
       </View>
+      
+      <LocationDisclosureModal 
+        visible={showDisclosure} 
+        onAccept={handleDisclosureAccept} 
+        onDecline={handleDisclosureDecline} 
+      />
     </SafeAreaView>
   );
 };

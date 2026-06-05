@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   Modal,
   TouchableWithoutFeedback,
@@ -13,6 +12,7 @@ import {
   ActivityIndicator,
   FlatList,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
@@ -27,6 +27,7 @@ interface AccountScreenProps {
   onLogout: () => void;
   onSavedAddressPress?: () => void;
   onOrderPress?: (orderId: string) => void;
+  onInfoPress: (type: 'about' | 'privacy' | 'terms' | 'refund' | 'shipping' | 'contact') => void;
 }
 
 const AccountScreen: React.FC<AccountScreenProps> = ({ 
@@ -35,7 +36,8 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
   onBack, 
   onLogout,
   onSavedAddressPress,
-  onOrderPress
+  onOrderPress,
+  onInfoPress
 }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
@@ -64,9 +66,12 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
   };
 
   const menuItems = [
-    { id: '1', title: 'Account Statement', icon: 'document-outline' },
-    { id: '5', title: 'Saved by Me', icon: 'bookmark-outline' },
-    { id: '6', title: 'Privacy Policy', icon: 'shield-checkmark-outline' },
+    { id: 'about', title: 'About Us', icon: 'information-circle-outline' },
+    { id: 'privacy', title: 'Privacy Policy', icon: 'shield-checkmark-outline' },
+    { id: 'terms', title: 'Terms & Conditions', icon: 'document-text-outline' },
+    { id: 'refund', title: 'Refund Policy', icon: 'refresh-circle-outline' },
+    { id: 'shipping', title: 'Shipping Policy', icon: 'truck-outline' },
+    { id: 'contact', title: 'Contact Us', icon: 'mail-outline' },
   ];
 
   const quickLinks = [
@@ -79,6 +84,40 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
   const handleLogout = () => {
     setMenuVisible(false);
     onLogout();
+  };
+
+  const handleDeleteAccount = () => {
+    setMenuVisible(false);
+    Alert.alert(
+      'Delete Account',
+      'Are you absolutely sure you want to delete your account? This action cannot be undone and all your data, including order history, will be permanently erased.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await fetch(`${API_BASE_URL}/user/account`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${userToken}`,
+                },
+              });
+              const data = await response.json();
+              if (data.success) {
+                onLogout(); // This will clear storage and sign out
+              } else {
+                Alert.alert('Error', data.error || 'Failed to delete account');
+              }
+            } catch (error) {
+              console.error('Delete account error:', error);
+              Alert.alert('Error', 'Something went wrong. Please try again later.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const renderOrder = (order: any) => {
@@ -163,6 +202,10 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
               <TouchableOpacity style={styles.menuOption} onPress={handleLogout}>
                 <Text style={styles.menuOptionText}>Logout</Text>
               </TouchableOpacity>
+              <View style={styles.menuDivider} />
+              <TouchableOpacity style={styles.menuOption} onPress={handleDeleteAccount}>
+                <Text style={[styles.menuOptionText, { color: Colors.error }]}>Delete Account</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -205,7 +248,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
                 styles.menuItem, 
                 index === menuItems.length - 1 ? styles.lastMenuItem : null
               ]}
-              onPress={item.id === '6' ? () => Linking.openURL(PRIVACY_POLICY_URL) : undefined}
+              onPress={() => onInfoPress(item.id as any)}
             >
               <View style={styles.menuItemLeft}>
                 <Icon name={item.icon} size={22} color="#333" />
@@ -397,6 +440,11 @@ const styles = StyleSheet.create({
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   statusText: {
     fontSize: 11,

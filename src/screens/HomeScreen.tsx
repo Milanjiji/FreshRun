@@ -6,10 +6,10 @@ import {
   TouchableOpacity,
   ScrollView,
   StatusBar,
-  SafeAreaView,
   Image,
   TextInput,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import io from 'socket.io-client';
 import HomeHeader from '../components/HomeHeader';
 import { Colors } from '../theme/colors';
@@ -17,6 +17,9 @@ import { Fonts } from '../theme/typography';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { API_BASE_URL } from '../config/api';
 import DebugMapScreen from './DebugMapScreen';
+import { storage } from '../utils/storage';
+import { calculateDistance, estimateDeliveryTime, formatDeliveryTime } from '../utils/distance';
+import { getOptimizedImageUrl } from '../utils/image';
 
 
 interface HomeScreenProps {
@@ -30,6 +33,7 @@ interface HomeScreenProps {
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ 
   userData, 
+  locationData,
   onAddressPress,
   onProfilePress,
   onStorePress,
@@ -41,8 +45,18 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isVeg, setIsVeg] = useState(false);
   const [showDebugMap, setShowDebugMap] = useState(false);
+  const [avgDeliveryTime, setAvgDeliveryTime] = useState<number>(20);
 
   const socketRef = useRef<any>(null);
+
+  // Load cached delivery time on mount
+  useEffect(() => {
+    const cachedData = storage.getObject<any>('cached_delivery_time');
+    if (cachedData && cachedData.avgTime) {
+      console.log('[DeliveryTime] Loading initial average from cache:', cachedData.avgTime, 'mins');
+      setAvgDeliveryTime(cachedData.avgTime);
+    }
+  }, []);
 
   useEffect(() => {
     socketRef.current = io(API_BASE_URL);
@@ -63,28 +77,93 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   }, []);
 
   const categories = [
-    { id: "restaurants", name: "Restaurants", icon: "🍴" },
-    { id: "street-food", name: "Street Food", icon: "🍱" },
-    { id: "groceries", name: "Groceries", icon: "🛒" }
+    { id: "restaurants", name: "RESTAURANTS", icon: "restaurant-outline" },
+    { id: "street-food", name: "STREET FOOD", icon: "pizza-outline" },
+    { id: "groceries", name: "GROCERIES", icon: "cart-outline" },
+    { id: "chicken", name: "CHICKEN", icon: "egg-outline" },
+    { id: "fish", name: "FISH", icon: "fish-outline" },
+    { id: "medicine", name: "MEDICINE", icon: "medkit-outline" }
   ];
 
   const filters = ["Fast Delivery", "Rating 4.0+", "Pure Veg", "Offers"];
 
   useEffect(() => {
     fetchHomeData();
-  }, [selectedCategory, isVeg]);
+  }, [selectedCategory, isVeg, locationData?.latitude, locationData?.longitude]);
 
   const fetchHomeData = async () => {
     setLoading(true);
     try {
       const baseUrl = API_BASE_URL;
 
-      
-      // Fetch stores including inactive ones to show them as grayed out
+      // 1. Fetch Global Settings
+      const settingsRes = await fetch(`${baseUrl}/settings`);
+      const settingsResult = await settingsRes.json();
+      const globalMaxRadius = parseFloat(settingsResult?.data?.global_max_delivery_radius || '10.0');
+
+      // 2. Fetch stores including inactive ones
       const storeRes = await fetch(`${baseUrl}/stores?category=${selectedCategory}&is_veg=${isVeg}&include_inactive=true`);
       const storeResult = await storeRes.json();
-      if (storeResult.success) {
-        setStores(storeResult.data);
+      
+      if (storeResult.success && storeResult.data) {
+        const fetchedStores = storeResult.data;
+        
+        if (locationData?.latitude && locationData?.longitude && fetchedStores.length > 0) {
+          // Normalize coordinates to 4 decimal places for stable cache key (approx 11m precision)
+          const latKey = locationData.latitude.toFixed(4);
+          const lngKey = locationData.longitude.toFixed(4);
+          const storeIds = fetchedStores.map((s: any) => s.id).sort().join(',');
+          
+          const currentKey = `v3|${latKey}|${lngKey}|${selectedCategory}|${isVeg}|${storeIds}`;
+          
+          // Load the multi-cache dictionary
+          const multiCache = storage.getObject<Record<string, any>>('cached_home_v3') || {};
+          const cachedEntry = multiCache[currentKey];
+          
+          if (cachedEntry) {
+            setAvgDeliveryTime(cachedEntry.avgTime);
+            setStores(cachedEntry.stores);
+          } else {
+            let totalTime = 0;
+            const serviceableStores: any[] = [];
+
+            fetchedStores.forEach((s: any) => {
+              const dist = calculateDistance(locationData.latitude, locationData.longitude, s.latitude, s.longitude);
+              const isServiceable = dist <= globalMaxRadius;
+              
+              if (isServiceable) {
+                const time = estimateDeliveryTime(dist);
+                totalTime += time;
+                serviceableStores.push({ 
+                  ...s, 
+                  distance: dist, 
+                  deliveryTime: time 
+                });
+              }
+            });
+            
+            const avg = serviceableStores.length > 0 ? Math.round(totalTime / serviceableStores.length) : 0;
+            
+            setAvgDeliveryTime(avg);
+            setStores(serviceableStores);
+            
+            // Save into multi-cache dictionary
+            multiCache[currentKey] = { 
+              avgTime: avg, 
+              stores: serviceableStores 
+            };
+            
+            // Cleanup: Keep only last 10 unique cache entries to save space
+            const cacheKeys = Object.keys(multiCache);
+            if (cacheKeys.length > 10) {
+              delete multiCache[cacheKeys[0]];
+            }
+
+            storage.setItem('cached_home_v3', multiCache);
+          }
+        } else {
+          setStores(fetchedStores);
+        }
       }
 
       // Fetch products including inactive/out of stock
@@ -94,7 +173,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         setProducts(productResult.data);
       }
     } catch (error) {
-      console.error('Error fetching home data:', error);
+      console.error('fetchHomeData Error:', error);
     } finally {
       setLoading(false);
     }
@@ -136,6 +215,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       
       <HomeHeader 
         userData={userData} 
+        avgTime={avgDeliveryTime}
         onProfilePress={onProfilePress}
         onAddressPress={onAddressPress}
         onProfileLongPress={() => setShowDebugMap(true)}
@@ -145,32 +225,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         showsVerticalScrollIndicator={false}
         stickyHeaderIndices={[0]}
       >
-        {/* Sticky Section: Category Pills + Search Bar */}
+        {/* Sticky Section: Search Bar + Category Pills */}
         <View style={styles.stickySection}>
-
-          {/* Category Tabs */}
-          <View style={styles.pillsContainer}>
-            {categories.map((cat) => {
-              const isActive = selectedCategory === cat.id;
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[styles.pillBtn, isActive && styles.pillBtnActive]}
-                  onPress={() => setSelectedCategory(cat.id)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
-                    {cat.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
 
           {/* Search Row */}
           <View style={styles.searchRow}>
             <View style={styles.searchContainer}>
-              <Icon name="search-outline" size={20} color="#666" />
+              <Icon name="search-outline" size={20} color={Colors.primary} />
               <TextInput 
                 placeholder="Search for 'Pizza'" 
                 style={styles.searchInput}
@@ -189,6 +250,34 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
               </View>
             </TouchableOpacity>
           </View>
+
+          {/* Category Tabs */}
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false} 
+            contentContainerStyle={styles.pillsContainer}
+          >
+            {categories.map((cat) => {
+              const isActive = selectedCategory === cat.id;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.pillBtn, isActive && styles.pillBtnActive]}
+                  onPress={() => setSelectedCategory(cat.id)}
+                  activeOpacity={0.75}
+                >
+                  <Icon 
+                    name={cat.icon} 
+                    size={22} 
+                    color={isActive ? Colors.white : 'rgba(255,255,255,0.5)'} 
+                  />
+                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                    {cat.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
 
         {/* Circular Products (Whats on your mind) */}
@@ -211,7 +300,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                   <View style={styles.mindImageContainer}>
                     {product.image_url ? (
                       <Image 
-                        source={{ uri: product.image_url }} 
+                        source={{ uri: getOptimizedImageUrl(product.image_url, 150) }} 
                         style={[styles.mindImage, !product.is_active && { tintColor: 'gray' } as any]} 
                       />
                     ) : (
@@ -269,7 +358,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                 >
                   <View style={styles.imageContainer}>
                     <Image 
-                      source={{ uri: store.image_url }} 
+                      source={{ uri: getOptimizedImageUrl(store.image_url, 500) }} 
                       style={[styles.storeImage, !store.is_active && { opacity: 0.6 }]} 
                     />
                     {!store.is_active && (
@@ -288,7 +377,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                     )}
 
                     <View style={styles.timeBadge}>
-                      <Text style={styles.timeBadgeText}>25-30 MINS</Text>
+                      <Text style={styles.timeBadgeText}>
+                        {store.deliveryTime 
+                          ? (store.deliveryTime < 60 
+                              ? `${store.deliveryTime - 5}-${store.deliveryTime + 5} MINS` 
+                              : formatDeliveryTime(store.deliveryTime).toUpperCase())
+                          : '25-30 MINS'}
+                      </Text>
                     </View>
                   </View>
 
@@ -298,7 +393,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                     </View>
 
                     <View style={styles.metaRow}>
-                      <Text style={styles.metaText}>Calicut, 6.6 km</Text>
+                      <Text style={styles.metaText}>{store.city || 'Calicut'}, {store.distance?.toFixed(1) || '6.6'} km</Text>
                       <View style={styles.metaDot} />
                       <Text style={styles.metaText}>₹1-299 for one</Text>
                     </View>
@@ -325,36 +420,36 @@ const styles = StyleSheet.create({
   // ── Category Pills ──────────────────────────────────────────────
   pillsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 15,
-    paddingTop: 10,
-    paddingBottom: 15,
-    gap: 10,
+    paddingLeft: 20,
+    paddingRight: 20,
+    paddingTop: 5,
+    paddingBottom: 8,
+    gap: 30,
   },
   pillBtn: {
-    flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 4,
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#eee',
+    backgroundColor: 'transparent',
   },
   pillBtnActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: 'transparent',
   },
   pillText: {
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: Fonts.bold,
-    color: '#666',
+    color: 'rgba(255,255,255,0.5)',
+    letterSpacing: 0.5,
+    marginTop: 2,
   },
   pillTextActive: {
-    color: '#fff',
+    color: Colors.white,
   },
   stickySection: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.primary,
     paddingTop: 0,
-    borderBottomWidth: 0,
+    paddingBottom: 0,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   searchRow: {
     flexDirection: 'row',
@@ -366,7 +461,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Colors.white,
     borderRadius: 12,
     paddingHorizontal: 12,
     height: 48,
@@ -383,45 +478,45 @@ const styles = StyleSheet.create({
   vegToggle: {
     width: 60,
     height: 48,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: 'rgba(255,255,255,0.3)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   vegToggleActive: {
-    borderColor: '#4caf50',
-    backgroundColor: '#f1f8e9',
+    borderColor: Colors.white,
+    backgroundColor: 'rgba(255,255,255,0.35)',
   },
   vegText: {
     fontSize: 9,
     fontFamily: Fonts.black,
-    color: '#999',
+    color: 'rgba(255,255,255,0.8)',
     marginBottom: 2,
   },
   vegTextActive: {
-    color: '#4caf50',
+    color: Colors.white,
   },
   toggleTrack: {
     width: 24,
     height: 12,
-    backgroundColor: '#ddd',
+    backgroundColor: 'rgba(255,255,255,0.3)',
     borderRadius: 6,
     padding: 2,
     justifyContent: 'center',
   },
   toggleTrackActive: {
-    backgroundColor: '#a5d6a7',
+    backgroundColor: Colors.white,
   },
   toggleThumb: {
     width: 8,
     height: 8,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.8)',
     borderRadius: 4,
   },
   toggleThumbActive: {
-    backgroundColor: '#4caf50',
+    backgroundColor: Colors.primary,
     transform: [{ translateX: 12 }],
   },
   mindSection: {
@@ -519,7 +614,7 @@ const styles = StyleSheet.create({
   },
   promoBadge: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 15,
     left: 12,
     backgroundColor: Colors.primary,
     paddingHorizontal: 10,
@@ -533,11 +628,12 @@ const styles = StyleSheet.create({
   },
   timeBadge: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 15,
     right: 12,
     backgroundColor: '#fff',
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingTop: 4,
+    paddingBottom: 6,
     borderRadius: 6,
   },
   timeBadgeText: {

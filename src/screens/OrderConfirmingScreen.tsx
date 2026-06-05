@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   Alert,
+  Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
@@ -18,11 +19,14 @@ interface OrderConfirmingScreenProps {
   totalAmount: number;
   deliveryFee: number;
   deliveryTip: number;
+  rainyFee: number;
+  lateNightFee: number;
   userData: any;
   locationData?: { latitude: number; longitude: number } | null;
   userToken: string | null;
   onSuccess: (orderId: string, order: any) => void;
   onFailure: () => void;
+  isSelfPickup?: boolean;
 }
 
 const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
@@ -30,13 +34,18 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
   totalAmount,
   deliveryFee,
   deliveryTip,
+  rainyFee,
+  lateNightFee,
   userData,
   locationData,
   userToken,
   onSuccess,
   onFailure,
+  isSelfPickup = false,
 }) => {
   const [success, setSuccess] = useState(false);
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     let isMounted = true;
@@ -49,9 +58,12 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
           store_id: storeId,
           items: cartItems,
           total_amount: totalAmount,
-          subtotal: totalAmount - deliveryFee - deliveryTip,
+          subtotal: totalAmount - deliveryFee - deliveryTip - rainyFee - lateNightFee,
           delivery_fee: deliveryFee,
           delivery_tip: deliveryTip,
+          rainy_surge_fee: rainyFee,
+          late_night_fee: lateNightFee,
+          is_pickup: isSelfPickup,
           delivery_address: {
             line1: `${userData?.houseNumber ? userData.houseNumber + ', ' : ''}${userData?.addressLine || ''}`,
             line2: userData?.landmark || '',
@@ -83,9 +95,24 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
 
         if (data.success && data.order) {
           setSuccess(true);
+          
+          Animated.parallel([
+            Animated.spring(scaleAnim, {
+              toValue: 1,
+              friction: 5,
+              tension: 40,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacityAnim, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            })
+          ]).start();
+
           setTimeout(() => {
             if (isMounted) onSuccess(data.order.id, data.order);
-          }, 1500);
+          }, 2000);
         } else {
           Alert.alert('Error', data.error || 'Failed to place order');
           onFailure();
@@ -120,23 +147,24 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
     locationData?.latitude,
     locationData?.longitude,
     userToken,
+    isSelfPickup,
   ]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f5f7fa" />
+      <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
       <View style={styles.container}>
         {success ? (
-          <View style={styles.content}>
+          <Animated.View style={[styles.content, { opacity: opacityAnim, transform: [{ scale: scaleAnim }] }]}>
             <View style={styles.successIconCircle}>
-              <Icon name="checkmark" size={60} color="#fff" />
+              <Icon name="checkmark" size={80} color={Colors.primary} />
             </View>
-            <Text style={styles.titleText}>Order is Confirmed!</Text>
-          </View>
+            <Text style={styles.titleText}>Order Confirmed!</Text>
+          </Animated.View>
         ) : (
           <View style={styles.content}>
-            <Text style={styles.holdOnText}>Hold on</Text>
-            <ActivityIndicator size="large" color={Colors.primary} style={styles.spinner} />
+            <Text style={styles.holdOnText}>Breathe In</Text>
+            <ActivityIndicator size="large" color="#fff" style={styles.spinner} />
             <Text style={styles.subText}>Placing your order...</Text>
           </View>
         )}
@@ -146,54 +174,53 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f5f7fa' },
+  safeArea: { flex: 1, backgroundColor: Colors.primary },
   container: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: Colors.primary,
   },
   content: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
-    padding: 40,
-    borderRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
-    shadowRadius: 20,
-    elevation: 5,
-    width: '80%',
   },
   successIconCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Colors.success || '#4caf50',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    marginBottom: 30,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
   },
   holdOnText: {
-    fontSize: 22,
+    fontSize: 32,
     fontFamily: Fonts.black,
-    color: '#333',
-    marginBottom: 20,
+    color: '#fff',
+    marginBottom: 30,
+    letterSpacing: 1,
   },
   spinner: {
-    transform: [{ scale: 1.5 }],
-    marginVertical: 10,
+    transform: [{ scale: 2 }],
+    marginVertical: 20,
   },
   subText: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: Fonts.bold,
-    color: '#666',
-    marginTop: 20,
+    color: '#fff',
+    marginTop: 30,
+    opacity: 0.9,
   },
   titleText: {
-    fontSize: 20,
+    fontSize: 26,
     fontFamily: Fonts.black,
-    color: '#333',
+    color: '#fff',
   },
 });
 

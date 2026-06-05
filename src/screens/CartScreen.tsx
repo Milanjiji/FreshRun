@@ -5,15 +5,17 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   Image,
   StatusBar,
+  Modal,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { API_BASE_URL } from '../config/api';
 import { Colors } from '../theme/colors';
-
 import { Fonts } from '../theme/typography';
+import { getOptimizedImageUrl } from '../utils/image';
 
 interface CartItem {
   id: string;
@@ -32,7 +34,8 @@ interface CartScreenProps {
   updateQuantity: (id: string, delta: number) => void;
   clearCart: () => void;
   locationAddress?: string;
-  onProceedToCheckout?: (totalAmount: number, deliveryFee: number, deliveryTip: number) => void;
+  socket?: any;
+  onProceedToCheckout?: (totalAmount: number, deliveryFee: number, deliveryTip: number, isSelfPickup: boolean, rainyFee: number, lateNightFee: number) => void;
 }
 
 const CartScreen: React.FC<CartScreenProps> = ({ 
@@ -41,6 +44,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
   updateQuantity, 
   clearCart,
   locationAddress,
+  socket,
   onProceedToCheckout
 }) => {
   const [deliveryTip, setDeliveryTip] = useState(0);
@@ -48,7 +52,22 @@ const CartScreen: React.FC<CartScreenProps> = ({
   const [productStatuses, setProductStatuses] = useState<Record<string, any>>({});
   const [appSettings, setAppSettings] = useState<any>(null);
   const [isUnserviceable, setIsUnserviceable] = useState(false);
+  const [isTooFar, setIsTooFar] = useState(false);
+  const [maxRadius, setMaxRadius] = useState(10);
   const [checkingServiceability, setCheckingServiceability] = useState(true);
+  const [isSelfPickup, setIsSelfPickup] = useState(false);
+  const [showPickupModal, setShowPickupModal] = useState(false);
+
+  // Haversine Distance Helper
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  };
 
   // 1. Fetch App Settings
   const fetchAppSettings = useCallback(async () => {
@@ -78,7 +97,13 @@ const CartScreen: React.FC<CartScreenProps> = ({
         const storeIds = [...new Set(cartItems.map(item => String(item.store_id || (item as any).storeId)).filter(id => id && id !== 'undefined'))];
         
         let anyStoreOffline = false;
+        let anyStoreTooFar = false;
         const storeMap: Record<string, boolean> = {};
+
+        // Fetch location data for distance check (from storage)
+        const { storage: mmkvStorage } = require('../utils/storage');
+        const userLocation = mmkvStorage.getObject('locationData');
+
         for (const storeId of storeIds) {
           try {
             const res = await fetch(`${baseUrl}/stores/${storeId}`);
@@ -87,16 +112,30 @@ const CartScreen: React.FC<CartScreenProps> = ({
               continue;
             }
             const data = await res.json();
-            const isActive = data.success && data.data ? data.data.is_active : true;
+            const store = data.data;
+            const isActive = data.success && store ? store.is_active : true;
             storeMap[storeId] = isActive;
-            if (data.success && data.data) {
-              setStoreData(prev => ({ ...prev, [storeId]: data.data }));
+            
+            if (data.success && store) {
+              setStoreData(prev => ({ ...prev, [storeId]: store }));
+
+              // Distance Check
+              if (userLocation?.latitude && store.latitude && !isSelfPickup) {
+                 const dist = calculateDistance(userLocation.latitude, userLocation.longitude, store.latitude, store.longitude);
+                 const limit = parseFloat(appSettings?.global_max_delivery_radius || 10);
+                 if (dist > limit) {
+                   anyStoreTooFar = true;
+                   setMaxRadius(limit);
+                 }
+              }
             }
             if (!isActive) anyStoreOffline = true;
           } catch (e) {
             storeMap[storeId] = true;
           }
         }
+
+        setIsTooFar(anyStoreTooFar);
 
         let anyItemUnavailable = false;
         const storeGroups: Record<string, any[]> = {};
@@ -149,6 +188,20 @@ const CartScreen: React.FC<CartScreenProps> = ({
     fetchAppSettings();
   }, [fetchAppSettings]);
 
+  // WebSocket listener for real-time settings updates
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('settings_updated', (newSettings: any) => {
+      console.log('[Cart] Global settings updated via socket');
+      setAppSettings(newSettings);
+    });
+
+    return () => {
+      socket.off('settings_updated');
+    };
+  }, [socket]);
+
   useEffect(() => {
     checkServiceability();
   }, [checkServiceability, locationAddress]);
@@ -187,10 +240,34 @@ const CartScreen: React.FC<CartScreenProps> = ({
 
     const hFee = Object.values(storeFees).reduce((sum, fee) => sum + fee, 0);
 
-    // Delivery Fee
-    const dFee = sub > (parseFloat(appSettings?.free_delivery_threshold) || 500) 
-      ? 0 
-      : (parseFloat(appSettings?.min_delivery_fee) || 30);
+    // Dynamic Delivery Fee Calculation
+    let dFee = 0;
+    if (!isSelfPickup && sub < (parseFloat(appSettings?.free_delivery_threshold) || 500)) {
+       const { storage: mmkvStorage } = require('../utils/storage');
+       const userLoc = mmkvStorage.getObject('locationData');
+       
+       let maxDist = 0;
+       Object.values(storeData).forEach(s => {
+         if (userLoc?.latitude && s.latitude) {
+            const d = calculateDistance(userLoc.latitude, userLoc.longitude, s.latitude, s.longitude);
+            if (d > maxDist) maxDist = d;
+         }
+       });
+
+       dFee = parseFloat(appSettings?.min_delivery_fee) || 30;
+       const baseRadius = parseFloat(appSettings?.base_delivery_radius || 5);
+       
+       if (maxDist > baseRadius) {
+          const extraDist = maxDist - baseRadius;
+          const extraCharge = parseFloat(appSettings?.per_km_extra_charge || 10);
+          dFee += extraDist * extraCharge;
+       }
+
+       dFee = Math.round(dFee);
+    }
+
+    // Rainy Surge Fee
+    const rFee = (!isSelfPickup && appSettings?.is_rainy_condition) ? (parseFloat(appSettings.rainy_condition_fee) || 0) : 0;
 
     // Late Night Fee Check
     const isLateNightCheck = (() => {
@@ -204,8 +281,17 @@ const CartScreen: React.FC<CartScreenProps> = ({
       return st > et ? (currentTime >= st || currentTime <= et) : (currentTime >= st && currentTime <= et);
     })();
 
-    const lnFee = isLateNightCheck ? (parseFloat(appSettings?.late_night_fee) || 0) : 0;
-    let totalPayable = sub + hFee + dFee + lnFee + deliveryTip;
+    let lnFee = isLateNightCheck ? (parseFloat(appSettings?.late_night_fee) || 0) : 0;
+    
+    // Apply Self-Pickup overrides
+    let effectiveTip = deliveryTip;
+    if (isSelfPickup) {
+      dFee = 0;
+      lnFee = 0;
+      effectiveTip = 0;
+    }
+
+    let totalPayable = sub + hFee + dFee + rFee + lnFee + effectiveTip;
 
     // Dev Bypass: If subtotal is exactly 1, force total to 1
     if (sub === 1) {
@@ -217,13 +303,15 @@ const CartScreen: React.FC<CartScreenProps> = ({
       totalSavings: savings,
       handlingFee: hFee,
       deliveryFee: dFee,
+      rainyFee: rFee,
       lateNightFee: lnFee,
       isLateNight: isLateNightCheck,
+      deliveryTip: effectiveTip,
       total: totalPayable
     };
-  }, [cartItems, productStatuses, storeData, appSettings, deliveryTip]);
+  }, [cartItems, productStatuses, storeData, appSettings, deliveryTip, isSelfPickup]);
 
-  const { subtotal, totalSavings, handlingFee, deliveryFee, lateNightFee, isLateNight, total } = billingInfo;
+  const { subtotal, totalSavings, handlingFee, deliveryFee, rainyFee, lateNightFee, isLateNight, total, deliveryTip: effectiveTip } = billingInfo;
 
 
 
@@ -231,6 +319,47 @@ const CartScreen: React.FC<CartScreenProps> = ({
 
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      
+      {/* Pickup Confirmation Modal */}
+      <Modal
+        visible={showPickupModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPickupModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <Icon name="walk" size={40} color={Colors.primary} />
+            </View>
+            <Text style={styles.modalTitle}>Switch to Self-Pickup?</Text>
+            <Text style={styles.modalDescription}>
+              You will need to fetch the order from the store yourself. Delivery charges and tips will be removed from your bill.
+            </Text>
+            
+            <View style={styles.modalActionRow}>
+              <TouchableOpacity 
+                style={styles.modalCancelBtn} 
+                onPress={() => setShowPickupModal(false)}
+              >
+                <Text style={styles.modalCancelText}>Go Back</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.modalConfirmBtn} 
+                onPress={() => {
+                  setIsSelfPickup(true);
+                  setShowPickupModal(false);
+                  setDeliveryTip(0);
+                }}
+              >
+                <Text style={styles.modalConfirmText}>Confirm Pickup</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -294,7 +423,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
                     {item.image_url ? (
                       <View style={styles.imageWrapper}>
                         <Image 
-                          source={{ uri: item.image_url }} 
+                          source={{ uri: getOptimizedImageUrl(item.image_url, 150) }} 
                           style={[styles.itemImage, isItemUnavailable && { opacity: 0.5 }]} 
                         />
                         {isItemUnavailable && <View style={styles.grayscaleOverlay} />}
@@ -362,31 +491,52 @@ const CartScreen: React.FC<CartScreenProps> = ({
                 </View>
              </View>
 
-             <View style={styles.tipSection}>
-                <Text style={styles.tipTitle}>DELIVERY TIP <Icon name="information-circle-outline" size={14} color="#888" /></Text>
-                <View style={styles.tipContent}>
-                   <View style={styles.tipTextContainer}>
-                      <Text style={styles.tipDesc}>A small tip, a big gesture! Tip your delivery partner to show your appreciation.</Text>
-                      <View style={styles.tipOptions}>
-                         {[10, 20, 30].map(val => (
-                           <TouchableOpacity 
-                             key={val} 
-                             style={[styles.tipBtn, deliveryTip === val && styles.tipBtnActive]}
-                             onPress={() => setDeliveryTip(deliveryTip === val ? 0 : val)}
-                           >
-                              <Text style={[styles.tipBtnText, deliveryTip === val && styles.tipBtnTextActive]}>₹{val}</Text>
-                              {val === 20 && <View style={styles.mostTipped}><Text style={styles.mostTippedText}>Most tipped</Text></View>}
-                           </TouchableOpacity>
-                         ))}
-                         <TouchableOpacity style={styles.tipBtn}>
-                            <Text style={styles.tipBtnText}>Other</Text>
-                         </TouchableOpacity>
-                      </View>
-
-                   </View>
-                   <Image source={{ uri: 'https://cdn-icons-png.flaticon.com/512/2331/2331827.png' }} style={styles.tipImage} />
+             <TouchableOpacity 
+               style={styles.prefRow}
+               onPress={() => {
+                 if (isSelfPickup) {
+                   setIsSelfPickup(false);
+                 } else {
+                   setShowPickupModal(true);
+                 }
+               }}
+             >
+                <View style={styles.prefTextContainer}>
+                   <Text style={styles.prefTitle}>Self-Pickup <Icon name="walk" size={14} color={Colors.primary} /></Text>
+                   <Text style={styles.prefDesc}>I will fetch the order from the store myself.</Text>
                 </View>
-             </View>
+                <View style={[styles.toggleTrack, isSelfPickup && { backgroundColor: Colors.primary }]}>
+                   <View style={[styles.toggleThumb, isSelfPickup && { alignSelf: 'flex-end' }]} />
+                </View>
+             </TouchableOpacity>
+
+             {!isSelfPickup && (
+               <View style={styles.tipSection}>
+                  <Text style={styles.tipTitle}>DELIVERY TIP <Icon name="information-circle-outline" size={14} color="#888" /></Text>
+                  <View style={styles.tipContent}>
+                     <View style={styles.tipTextContainer}>
+                        <Text style={styles.tipDesc}>A small tip, a big gesture! Tip your delivery partner to show your appreciation.</Text>
+                        <View style={styles.tipOptions}>
+                           {[10, 20, 30].map(val => (
+                             <TouchableOpacity 
+                               key={val} 
+                               style={[styles.tipBtn, deliveryTip === val && styles.tipBtnActive]}
+                               onPress={() => setDeliveryTip(deliveryTip === val ? 0 : val)}
+                             >
+                                <Text style={[styles.tipBtnText, deliveryTip === val && styles.tipBtnTextActive]}>₹{val}</Text>
+                                {val === 20 && <View style={styles.mostTipped}><Text style={styles.mostTippedText}>Most tipped</Text></View>}
+                             </TouchableOpacity>
+                           ))}
+                           <TouchableOpacity style={styles.tipBtn}>
+                              <Text style={styles.tipBtnText}>Other</Text>
+                           </TouchableOpacity>
+                        </View>
+
+                     </View>
+                     <Image source={{ uri: 'https://cdn-icons-png.flaticon.com/512/2331/2331827.png' }} style={styles.tipImage} />
+                  </View>
+               </View>
+             )}
           </View>
 
           {/* Bill Details */}
@@ -440,6 +590,17 @@ const CartScreen: React.FC<CartScreenProps> = ({
                    </View>
                    <Text style={styles.billValue}>₹{lateNightFee.toFixed(2)}</Text>
                 </View>
+
+                {rainyFee > 0 && (
+                  <View style={styles.billRow}>
+                    <View style={styles.rowInline}>
+                        <Text style={styles.billLabelDashed}>Rainy Surge Fee</Text>
+                        <Icon name="cloud-rain" size={14} color="#4A90E2" style={{ marginLeft: 5 }} />
+                    </View>
+                    <Text style={styles.billValue}>₹{rainyFee.toFixed(2)}</Text>
+                  </View>
+                )}
+
                 <Text style={styles.feeSubtext}>
                   {isLateNight 
                     ? `Applied for orders between ${appSettings?.late_night_start} - ${appSettings?.late_night_end}`
@@ -482,7 +643,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
               </TouchableOpacity>
            </View>
 
-           {isUnserviceable ? (
+           {isUnserviceable || (isTooFar && !isSelfPickup) ? (
              <>
                <View style={styles.unserviceableBox}>
                   <View style={styles.errorIconCircle}>
@@ -490,11 +651,17 @@ const CartScreen: React.FC<CartScreenProps> = ({
                   </View>
                   <View style={styles.unserviceableTextContainer}>
                      <Text style={styles.unserviceableMsgTitle}>
-                       {Object.values(productStatuses).some(s => !s.is_active || s.is_stock_out) 
-                        ? 'Some items are currently unavailable' 
-                        : 'This FreshRun store is currently unserviceable'}
+                       {isTooFar 
+                         ? `Store is too far for delivery`
+                         : (Object.values(productStatuses).some(s => !s.is_active || s.is_stock_out) 
+                            ? 'Some items are currently unavailable' 
+                            : 'This FreshRun store is currently unserviceable')}
                      </Text>
-                     <Text style={styles.unserviceableMsgSub}>Please remove unavailable items to proceed</Text>
+                     <Text style={styles.unserviceableMsgSub}>
+                       {isTooFar 
+                         ? `Max delivery distance is ${maxRadius}km. Try self-pickup or another store.`
+                         : 'Please remove unavailable items to proceed'}
+                     </Text>
                   </View>
                </View>
 
@@ -506,7 +673,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
              <TouchableOpacity 
                style={styles.checkoutBtn} 
                disabled={checkingServiceability}
-               onPress={() => onProceedToCheckout && onProceedToCheckout(total, deliveryFee, deliveryTip)}
+               onPress={() => onProceedToCheckout && onProceedToCheckout(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee)}
              >
                 <Text style={styles.checkoutBtnText}>
                   {checkingServiceability ? 'Checking...' : 'Proceed to Checkout'}
@@ -1073,9 +1240,107 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bold,
     color: '#e53935',
     marginTop: 2,
-  }
+  },
+  serviceSelectionSection: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    marginHorizontal: 15,
+    marginVertical: 10,
+    padding: 6,
+    gap: 8,
+  },
+  serviceTypeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  serviceTypeBtnActive: {
+    backgroundColor: '#333',
+  },
+  serviceTypeBtnActivePickup: {
+    backgroundColor: Colors.primary,
+  },
+  serviceTypeText: {
+    fontSize: 14,
+    fontFamily: Fonts.black,
+    color: '#666',
+  },
+  serviceTypeTextActive: {
+    color: '#fff',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    alignItems: 'center',
+  },
+  modalIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#fff1f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: Fonts.black,
+    color: '#333',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalDescription: {
+    fontSize: 14,
+    fontFamily: Fonts.regular,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  modalActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+    alignItems: 'center',
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: '#666',
+  },
+  modalConfirmText: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: '#fff',
+  },
 });
-
-
 
 export default CartScreen;
