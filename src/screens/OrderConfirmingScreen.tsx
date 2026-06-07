@@ -13,6 +13,7 @@ import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { Alertt } from '../components/Alertt';
 import { API_BASE_URL } from '../config/api';
+import RazorpayCheckout from 'react-native-razorpay';
 
 interface OrderConfirmingScreenProps {
   cartItems: any[];
@@ -27,6 +28,7 @@ interface OrderConfirmingScreenProps {
   onSuccess: (orderId: string, order: any) => void;
   onFailure: () => void;
   isSelfPickup?: boolean;
+  paymentMode?: 'cod' | 'online';
 }
 
 const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
@@ -42,8 +44,10 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
   onSuccess,
   onFailure,
   isSelfPickup = false,
+  paymentMode = 'cod',
 }) => {
   const [success, setSuccess] = useState(false);
+  const [statusText, setStatusText] = useState('Placing your order...');
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
@@ -64,6 +68,7 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
           rainy_surge_fee: rainyFee,
           late_night_fee: lateNightFee,
           is_pickup: isSelfPickup,
+          payment_mode: paymentMode,
           delivery_address: {
             line1: `${userData?.houseNumber ? userData.houseNumber + ', ' : ''}${userData?.addressLine || ''}`,
             line2: userData?.landmark || '',
@@ -76,8 +81,8 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
         };
 
         console.log('\n📝 [OrderPlacement] STEP 1: Sending order payload to backend:');
-        console.log(JSON.stringify(payload, null, 2));
-
+        
+        // 1. Create Order in Database (Status: Pending if online, Placed if COD)
         const response = await fetch(`${API_BASE_URL}/orders`, {
           method: 'POST',
           headers: {
@@ -88,44 +93,108 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
         });
 
         const data = await response.json();
-        console.log('\n📥 [OrderPlacement] STEP 4: Received order placement response:');
-        console.log(JSON.stringify(data, null, 2));
-
         if (!isMounted) return;
 
-        if (data.success && data.order) {
-          setSuccess(true);
-          
-          Animated.parallel([
-            Animated.spring(scaleAnim, {
-              toValue: 1,
-              friction: 5,
-              tension: 40,
-              useNativeDriver: true,
-            }),
-            Animated.timing(opacityAnim, {
-              toValue: 1,
-              duration: 300,
-              useNativeDriver: true,
-            })
-          ]).start();
-
-          setTimeout(() => {
-            if (isMounted) onSuccess(data.order.id, data.order);
-          }, 2000);
-        } else {
-          Alertt.alert('Error', data.error || 'Failed to place order');
-          onFailure();
+        if (!data.success || !data.order) {
+          throw new Error(data.error || 'Failed to initiate order');
         }
-      } catch (error) {
+
+        const dbOrder = data.order;
+
+        // 2. If Payment Mode is Online, trigger Razorpay
+        if (paymentMode === 'online') {
+          setStatusText('Initiating secure payment...');
+          
+          // A. Create Razorpay Order on Backend
+          const rzpRes = await fetch(`${API_BASE_URL}/payments/create-order`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${userToken}`,
+            },
+            body: JSON.stringify({ orderId: dbOrder.id }),
+          });
+
+          const rzpData = await rzpRes.json();
+          if (!rzpData.success) {
+            throw new Error(rzpData.error || 'Failed to create payment order');
+          }
+
+          // B. Open Razorpay Checkout
+          const options = {
+            description: 'Order Payment',
+            image: 'https://freshrun.in/logo.png', // Replace with your logo
+            currency: rzpData.currency,
+            key: rzpData.key,
+            amount: rzpData.amount,
+            name: 'FreshRun',
+            order_id: rzpData.order_id,
+            prefill: {
+              email: userData?.email || '',
+              contact: userData?.phone || '',
+              name: userData?.fullName || ''
+            },
+            theme: { color: Colors.primary }
+          };
+
+          try {
+            const rzpSuccessResponse = await RazorpayCheckout.open(options);
+            setStatusText('Verifying payment...');
+            
+            // C. Verify Payment on Backend
+            const verifyRes = await fetch(`${API_BASE_URL}/payments/verify`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${userToken}`,
+              },
+              body: JSON.stringify({
+                ...rzpSuccessResponse,
+                order_id: dbOrder.id
+              }),
+            });
+
+            const verifyData = await verifyRes.json();
+            if (!verifyData.success) {
+              throw new Error('Payment verification failed');
+            }
+          } catch (rzpError: any) {
+            console.log('Razorpay Error:', rzpError);
+            // Handle payment cancellation or failure
+            Alertt.alert('Payment Failed', rzpError.description || 'Payment was cancelled');
+            onFailure();
+            return;
+          }
+        }
+
+        // 3. Finalize Success
+        setSuccess(true);
+        Animated.parallel([
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            friction: 5,
+            tension: 40,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacityAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          })
+        ]).start();
+
+        setTimeout(() => {
+          if (isMounted) onSuccess(dbOrder.id, dbOrder);
+        }, 2000);
+
+      } catch (error: any) {
         if (!isMounted) return;
-        console.error('❌ [OrderPlacement] Error placing order:', error);
-        Alertt.alert('Error', 'Something went wrong while placing the order.');
+        console.error('❌ [OrderPlacement] Error:', error);
+        Alertt.alert('Order Failed', error.message || 'Something went wrong.');
         onFailure();
       }
     };
 
-    // Small delay to ensure the UI renders before starting heavy work
     setTimeout(() => placeOrder(), 500);
 
     return () => {
@@ -136,18 +205,11 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
     onFailure,
     onSuccess,
     totalAmount,
-    userData?.addressLine,
-    userData?.city,
-    userData?.currentAddressId,
-    userData?.currentAddressLatitude,
-    userData?.currentAddressLongitude,
-    userData?.houseNumber,
-    userData?.landmark,
-    userData?.pincode,
-    locationData?.latitude,
-    locationData?.longitude,
+    userData,
+    locationData,
     userToken,
     isSelfPickup,
+    paymentMode
   ]);
 
   return (
@@ -165,7 +227,7 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
           <View style={styles.content}>
             <Text style={styles.holdOnText}>Breathe In</Text>
             <ActivityIndicator size="large" color="#fff" style={styles.spinner} />
-            <Text style={styles.subText}>Placing your order...</Text>
+            <Text style={styles.subText}>{statusText}</Text>
           </View>
         )}
       </View>

@@ -94,6 +94,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const fetchHomeData = async () => {
     setLoading(true); // Always show loading when fetching fresh data
+    console.log('[HomeScreen] fetchHomeData started');
     try {
       const baseUrl = API_BASE_URL;
 
@@ -101,15 +102,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       const settingsRes = await fetch(`${baseUrl}/settings`);
       const settingsResult = await settingsRes.json();
       const globalMaxRadius = parseFloat(settingsResult?.data?.global_max_delivery_radius || '10.0');
+      console.log('[HomeScreen] Global Max Radius:', globalMaxRadius);
 
       // 2. Fetch stores including inactive ones
-      const storeRes = await fetch(`${baseUrl}/stores?category=${selectedCategory}&is_veg=${isVeg}&include_inactive=true`);
+      console.log(`[HomeScreen] Fetching stores for category: ${selectedCategory}, isVeg: ${isVeg}`);
+      const storeRes = await fetch(`${baseUrl}/stores?category=${selectedCategory}&is_veg=${isVeg}&include_inactive=true&include_pending=true`);
       const storeResult = await storeRes.json();
       
       if (storeResult.success && storeResult.data) {
         const fetchedStores = storeResult.data;
+        console.log(`[HomeScreen] Total stores fetched from server: ${fetchedStores.length}`);
         
         if (locationData?.latitude && locationData?.longitude && fetchedStores.length > 0) {
+          console.log(`[HomeScreen] User Location: ${locationData.latitude}, ${locationData.longitude}`);
           const latKey = locationData.latitude.toFixed(4);
           const lngKey = locationData.longitude.toFixed(4);
           const locKey = `${latKey}|${lngKey}|${!!locationData.isFromAddress}`;
@@ -122,6 +127,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
           if (lastCache && lastCache.locKey === locKey && lastCache.results[currentFullKey]) {
             const cached = lastCache.results[currentFullKey];
             console.log(`[HomeCache] HIT: category '${selectedCategory}' from cache (${locationData.isFromAddress ? 'Address' : 'GPS'})`);
+            console.log(`[HomeCache] Loaded ${cached.stores.length} stores from cache`);
             setAvgDeliveryTime(cached.avgTime);
             setStores(cached.stores);
           } else {
@@ -134,16 +140,27 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
               const storeLat = parseFloat(s.latitude);
               const storeLng = parseFloat(s.longitude);
               
+              console.log(`--- Calculating for store: ${s.name} (ID: ${s.id}) ---`);
+              console.log(`Store Coords: ${storeLat}, ${storeLng}`);
+
               if (!isNaN(storeLat) && !isNaN(storeLng)) {
                 const dist = calculateDistance(locationData.latitude, locationData.longitude, storeLat, storeLng);
+                console.log(`Distance to user: ${dist.toFixed(2)} km`);
+
                 if (dist <= globalMaxRadius) {
                   const time = estimateDeliveryTime(dist);
                   totalTime += time;
                   serviceableStores.push({ ...s, distance: dist, deliveryTime: time });
+                  console.log(`Result: SERVICEABLE (within ${globalMaxRadius}km)`);
+                } else {
+                  console.log(`Result: NOT SERVICEABLE (too far, exceeds ${globalMaxRadius}km)`);
                 }
+              } else {
+                console.log('Result: INVALID COORDINATES (NaN)');
               }
             });
             
+            console.log(`[HomeScreen] Final serviceable stores count: ${serviceableStores.length}`);
             const avg = serviceableStores.length > 0 ? Math.round(totalTime / serviceableStores.length) : 0;
             setAvgDeliveryTime(avg);
             setStores(serviceableStores);
@@ -161,8 +178,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             console.log(`[HomeCache] SAVED: result added to location cache.`);
           }
         } else {
+          console.log('[HomeScreen] No user location or no stores fetched. Setting stores as is.');
           setStores(fetchedStores);
         }
+      } else {
+        console.log('[HomeScreen] Failed to fetch stores or no data returned:', storeResult);
       }
 
       // Fetch products including inactive/out of stock

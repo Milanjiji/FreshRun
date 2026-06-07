@@ -154,6 +154,7 @@ function App() {
   const [checkoutLateNightFee, setCheckoutLateNightFee] = useState<number>(0);
   const [checkoutRainyFee, setCheckoutRainyFee] = useState<number>(0);
   const [checkoutIsSelfPickup, setCheckoutIsSelfPickup] = useState<boolean>(false);
+  const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<'cod' | 'online'>('cod');
   const [appSettings, setAppSettings] = useState<any>(null);
 
   // Fetch Global App Settings

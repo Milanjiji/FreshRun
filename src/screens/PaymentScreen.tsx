@@ -20,7 +20,7 @@ interface PaymentScreenProps {
   userData: any;
   userToken: string | null;
   onBack: () => void;
-  onOrderConfirmed: (orderId: string) => void;
+  onOrderConfirmed: (orderId: string, paymentMode: 'cod' | 'online') => void;
 }
 
 const PaymentScreen: React.FC<PaymentScreenProps> = ({
@@ -29,16 +29,17 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
   userData,
   userToken,
   onBack,
-  onOrderConfirmed, // This will now just signal to move to the confirming screen
+  onOrderConfirmed, 
 }) => {
+  const [selectedMethod, setSelectedMethod] = useState<'cod' | 'online'>('cod');
 
   const handleConfirmOrder = () => {
     if (cartItems.length === 0) {
       Alertt.alert('Error', 'Cart is empty');
       return;
     }
-    // Instantly transition to the new OrderConfirmingScreen
-    onOrderConfirmed('PENDING_ORDER_ID');
+    // Transition to the OrderConfirmingScreen with the selected mode
+    onOrderConfirmed('PENDING_ORDER_ID', selectedMethod);
   };
 
   return (
@@ -57,15 +58,42 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
         <View style={styles.content}>
           <Text style={styles.sectionTitle}>SELECT PAYMENT METHOD</Text>
           
-          <TouchableOpacity style={styles.paymentMethodBox} activeOpacity={0.9}>
+          <TouchableOpacity 
+            style={[styles.paymentMethodBox, selectedMethod === 'cod' && styles.selectedBox]} 
+            onPress={() => setSelectedMethod('cod')}
+            activeOpacity={0.9}
+          >
             <View style={styles.iconContainer}>
-              <Icon name="cash-outline" size={24} color={Colors.primary} />
+              <Icon name="cash-outline" size={24} color={selectedMethod === 'cod' ? Colors.primary : '#888'} />
             </View>
             <View style={styles.methodInfo}>
               <Text style={styles.methodName}>Cash on Delivery</Text>
               <Text style={styles.methodDesc}>Pay cash when order arrives</Text>
             </View>
-            <Icon name="radio-button-on" size={24} color={Colors.primary} />
+            <Icon 
+              name={selectedMethod === 'cod' ? "radio-button-on" : "radio-button-off"} 
+              size={24} 
+              color={selectedMethod === 'cod' ? Colors.primary : '#ccc'} 
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.paymentMethodBox, selectedMethod === 'online' && styles.selectedBox]} 
+            onPress={() => setSelectedMethod('online')}
+            activeOpacity={0.9}
+          >
+            <View style={styles.iconContainer}>
+              <Icon name="card-outline" size={24} color={selectedMethod === 'online' ? Colors.primary : '#888'} />
+            </View>
+            <View style={styles.methodInfo}>
+              <Text style={styles.methodName}>Online Payment</Text>
+              <Text style={styles.methodDesc}>Pay securely via Razorpay (UPI, Card, Wallet)</Text>
+            </View>
+            <Icon 
+              name={selectedMethod === 'online' ? "radio-button-on" : "radio-button-off"} 
+              size={24} 
+              color={selectedMethod === 'online' ? Colors.primary : '#ccc'} 
+            />
           </TouchableOpacity>
 
           {/* Amount Box */}
@@ -81,8 +109,10 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
             style={styles.confirmBtn} 
             onPress={handleConfirmOrder}
           >
-            <Text style={styles.confirmBtnText}>Confirm Order</Text>
-            <Icon name="checkmark-circle" size={18} color="#fff" />
+            <Text style={styles.confirmBtnText}>
+                {selectedMethod === 'cod' ? 'Confirm Order' : 'Proceed to Pay'}
+            </Text>
+            <Icon name={selectedMethod === 'cod' ? "checkmark-circle" : "shield-checkmark"} size={18} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -127,13 +157,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 15,
     borderWidth: 1.5,
+    borderColor: 'transparent',
+    marginBottom: 15,
+  },
+  selectedBox: {
     borderColor: Colors.primary,
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-    marginBottom: 20,
   },
   iconContainer: {
     width: 40,
@@ -163,6 +196,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 20,
+    marginTop: 10,
   },
   amountLabel: {
     fontSize: 15,
@@ -201,5 +235,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.black,
   },
 });
+
+export default PaymentScreen;
 
 export default PaymentScreen;
