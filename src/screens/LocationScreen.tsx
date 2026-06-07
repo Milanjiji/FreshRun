@@ -16,6 +16,7 @@ import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
 import LocationDisclosureModal from '../components/LocationDisclosureModal';
 import { Fonts } from '../theme/typography';
+import { Alertt } from '../components/Alertt';
 
 const DEFAULT_LOCATION = {
   latitude: 11.2588,
@@ -530,10 +531,6 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     textAlign: 'center',
   },
-});
-
-export default LocationScreen;
-
 });
 
 export default LocationScreen;

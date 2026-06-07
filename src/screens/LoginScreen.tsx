@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   View,
+  Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
@@ -17,7 +18,6 @@ import { storage } from '../utils/storage';
 import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
 import { Fonts } from '../theme/typography';
-import { Alertt } from '../components/Alertt';
 
 // Replace with your actual backend URL
 import { API_BASE_URL } from '../config/api';

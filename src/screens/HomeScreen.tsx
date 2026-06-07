@@ -88,11 +88,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const filters = ["Fast Delivery", "Rating 4.0+", "Pure Veg", "Offers"];
 
   useEffect(() => {
+    console.log('[HomeScreen] Location changed, triggering fresh fetch...');
     fetchHomeData();
-  }, [selectedCategory, isVeg, locationData?.latitude, locationData?.longitude]);
+  }, [selectedCategory, isVeg, locationData?.latitude, locationData?.longitude, locationData?.isFromAddress]);
 
   const fetchHomeData = async () => {
-    setLoading(true);
+    setLoading(true); // Always show loading when fetching fresh data
     try {
       const baseUrl = API_BASE_URL;
 
@@ -109,57 +110,55 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         const fetchedStores = storeResult.data;
         
         if (locationData?.latitude && locationData?.longitude && fetchedStores.length > 0) {
-          // Normalize coordinates to 4 decimal places for stable cache key (approx 11m precision)
           const latKey = locationData.latitude.toFixed(4);
           const lngKey = locationData.longitude.toFixed(4);
-          const storeIds = fetchedStores.map((s: any) => s.id).sort().join(',');
+          const locKey = `${latKey}|${lngKey}|${!!locationData.isFromAddress}`;
+          const currentFullKey = `${locKey}|${selectedCategory}|${isVeg}`;
           
-          const currentKey = `v3|${latKey}|${lngKey}|${selectedCategory}|${isVeg}|${storeIds}`;
+          // 1. Get the existing multi-cache for this specific location
+          // 2. If it's a NEW location, we clear everything to keep it fresh
+          const lastCache = storage.getObject<any>('home_multi_cache');
           
-          // Load the multi-cache dictionary
-          const multiCache = storage.getObject<Record<string, any>>('cached_home_v3') || {};
-          const cachedEntry = multiCache[currentKey];
-          
-          if (cachedEntry) {
-            setAvgDeliveryTime(cachedEntry.avgTime);
-            setStores(cachedEntry.stores);
+          if (lastCache && lastCache.locKey === locKey && lastCache.results[currentFullKey]) {
+            const cached = lastCache.results[currentFullKey];
+            console.log(`[HomeCache] HIT: category '${selectedCategory}' from cache (${locationData.isFromAddress ? 'Address' : 'GPS'})`);
+            setAvgDeliveryTime(cached.avgTime);
+            setStores(cached.stores);
           } else {
+            console.log(`[HomeCache] MISS: calculating '${selectedCategory}' for ${locationData.isFromAddress ? 'Address' : 'GPS'}`);
+            
             let totalTime = 0;
             const serviceableStores: any[] = [];
 
             fetchedStores.forEach((s: any) => {
-              const dist = calculateDistance(locationData.latitude, locationData.longitude, s.latitude, s.longitude);
-              const isServiceable = dist <= globalMaxRadius;
+              const storeLat = parseFloat(s.latitude);
+              const storeLng = parseFloat(s.longitude);
               
-              if (isServiceable) {
-                const time = estimateDeliveryTime(dist);
-                totalTime += time;
-                serviceableStores.push({ 
-                  ...s, 
-                  distance: dist, 
-                  deliveryTime: time 
-                });
+              if (!isNaN(storeLat) && !isNaN(storeLng)) {
+                const dist = calculateDistance(locationData.latitude, locationData.longitude, storeLat, storeLng);
+                if (dist <= globalMaxRadius) {
+                  const time = estimateDeliveryTime(dist);
+                  totalTime += time;
+                  serviceableStores.push({ ...s, distance: dist, deliveryTime: time });
+                }
               }
             });
             
             const avg = serviceableStores.length > 0 ? Math.round(totalTime / serviceableStores.length) : 0;
-            
             setAvgDeliveryTime(avg);
             setStores(serviceableStores);
             
-            // Save into multi-cache dictionary
-            multiCache[currentKey] = { 
-              avgTime: avg, 
-              stores: serviceableStores 
-            };
-            
-            // Cleanup: Keep only last 10 unique cache entries to save space
-            const cacheKeys = Object.keys(multiCache);
-            if (cacheKeys.length > 10) {
-              delete multiCache[cacheKeys[0]];
+            // Manage multi-layer cache: 
+            // If location changed entirely, start fresh. Otherwise, append the new category result.
+            let newCache;
+            if (lastCache && lastCache.locKey === locKey) {
+              newCache = { ...lastCache, results: { ...lastCache.results, [currentFullKey]: { avgTime: avg, stores: serviceableStores } } };
+            } else {
+              newCache = { locKey, results: { [currentFullKey]: { avgTime: avg, stores: serviceableStores } } };
             }
-
-            storage.setItem('cached_home_v3', multiCache);
+            
+            storage.setItem('home_multi_cache', newCache);
+            console.log(`[HomeCache] SAVED: result added to location cache.`);
           }
         } else {
           setStores(fetchedStores);

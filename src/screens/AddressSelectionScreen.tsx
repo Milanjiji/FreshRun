@@ -16,6 +16,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import Geolocation from '@react-native-community/geolocation';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
+import { Alertt } from '../components/Alertt';
 import axios from 'axios';
 
 import { API_BASE_URL } from '../config/api';
@@ -419,4 +420,3 @@ const styles = StyleSheet.create({
 });
 
 export default AddressSelectionScreen;
-rt default AddressSelectionScreen;

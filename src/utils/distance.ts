@@ -6,6 +6,10 @@
  * Calculates the Haversine distance between two points in kilometers.
  */
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  if (lat1 === undefined || lat1 === null || lon1 === undefined || lon1 === null || 
+      lat2 === undefined || lat2 === null || lon2 === undefined || lon2 === null) {
+    return Infinity;
+  }
   const R = 6371; // Radius of the earth in km
   const dLat = deg2rad(lat2 - lat1);
   const dLon = deg2rad(lon2 - lon1);

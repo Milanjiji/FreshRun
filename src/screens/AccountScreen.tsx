@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
+import { Alertt } from '../components/Alertt';
 import { API_BASE_URL } from '../config/api';
 
 const PRIVACY_POLICY_URL = 'https://freshrun-admin.vercel.app/privacy';
@@ -533,9 +534,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#444',
     marginHorizontal: 8,
   },
-});
-
-export default AccountScreen;
 });
 
 export default AccountScreen;

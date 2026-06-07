@@ -4,6 +4,7 @@ import {
   View,
   Text,
   Platform,
+  AppState,
   PermissionsAndroid,
 } from 'react-native';
 import io from 'socket.io-client';
@@ -30,6 +31,7 @@ import OrderTrackingScreen from './src/screens/OrderTrackingScreen';
 import OrderDeclinedScreen from './src/screens/OrderDeclinedScreen';
 import InfoScreen, { InfoType } from './src/screens/InfoScreen';
 import LoadingTransition from './src/components/LoadingTransition';
+import { Alertt, CustomAlert } from './src/components/Alertt';
 import CartFooter from './src/components/CartFooter';
 import ActiveOrderWidget from './src/components/ActiveOrderWidget';
 
@@ -59,9 +61,31 @@ appCheck().initializeAppCheck({
 // App Check is separate from Firebase Auth phone-number app verification.
 
 function App() {
+
   const [userToken, setUserToken] = useState<string | null>(null);
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // Update locationData whenever userData changes (e.g. address switch)
+  useEffect(() => {
+    console.log('[DEBUG-App] userData changed. currentAddressId:', userData?.currentAddressId);
+    if (userData?.currentAddressLatitude && userData?.currentAddressLongitude) {
+      const newLoc = {
+        latitude: parseFloat(userData.currentAddressLatitude),
+        longitude: parseFloat(userData.currentAddressLongitude),
+        isFromAddress: true,
+        addressId: userData.currentAddressId
+      };
+      console.log('[DEBUG-App] SETTING LOCATION FROM ADDRESS:', {
+        name: userData.addressLine,
+        lat: newLoc.latitude,
+        lng: newLoc.longitude
+      });
+      setLocationData(newLoc);
+    } else {
+      console.log('[DEBUG-App] userData has no address coordinates. Falling back to GPS or previous state.');
+    }
+  }, [userData?.id, userData?.currentAddressId, userData?.currentAddressLatitude, userData?.currentAddressLongitude]);
 
   // Firebase Auth & Token Refresh Logic
   useEffect(() => {
@@ -868,10 +892,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: Fonts.bold,
     fontWeight: 'bold',
-  },
-});
-
-export default App;
   },
 });
 
