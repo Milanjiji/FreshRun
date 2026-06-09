@@ -82,48 +82,31 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
 
         console.log('\n📝 [OrderPlacement] STEP 1: Sending order payload to backend:');
         
-        // 1. Create Order in Database (Status: Pending if online, Placed if COD)
-        const response = await fetch(`${API_BASE_URL}/orders`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${userToken}`,
-          },
-          body: JSON.stringify(payload),
-        });
+        let dbOrder;
 
-        const data = await response.json();
-        if (!isMounted) return;
-
-        if (!data.success || !data.order) {
-          throw new Error(data.error || 'Failed to initiate order');
-        }
-
-        const dbOrder = data.order;
-
-        // 2. If Payment Mode is Online, trigger Razorpay
         if (paymentMode === 'online') {
           setStatusText('Initiating secure payment...');
           
-          // A. Create Razorpay Order on Backend
-          const rzpRes = await fetch(`${API_BASE_URL}/payments/create-order`, {
+          // 1. Create Razorpay Session on Backend (no DB order created yet)
+          const rzpRes = await fetch(`${API_BASE_URL}/payments/create-checkout-session`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${userToken}`,
             },
-            body: JSON.stringify({ orderId: dbOrder.id }),
+            body: JSON.stringify({ total_amount: totalAmount }),
           });
 
           const rzpData = await rzpRes.json();
+          if (!isMounted) return;
           if (!rzpData.success) {
-            throw new Error(rzpData.error || 'Failed to create payment order');
+            throw new Error(rzpData.error || 'Failed to create payment session');
           }
 
-          // B. Open Razorpay Checkout
+          // 2. Open Razorpay Checkout
           const options = {
             description: 'Order Payment',
-            image: 'https://freshrun.in/logo.png', // Replace with your logo
+            image: 'https://freshrun.in/logo.png',
             currency: rzpData.currency,
             key: rzpData.key,
             amount: rzpData.amount,
@@ -138,10 +121,16 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
           };
 
           try {
+            console.log("RZP_DATA", rzpData);
+            console.log(
+              "RAZORPAY_CHECKOUT_OPTIONS",
+              JSON.stringify(options, null, 2)
+            );
             const rzpSuccessResponse = await RazorpayCheckout.open(options);
+            if (!isMounted) return;
             setStatusText('Verifying payment...');
             
-            // C. Verify Payment on Backend
+            // 3. Verify Payment and Create Database Order on Backend
             const verifyRes = await fetch(`${API_BASE_URL}/payments/verify`, {
               method: 'POST',
               headers: {
@@ -150,21 +139,42 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
               },
               body: JSON.stringify({
                 ...rzpSuccessResponse,
-                order_id: dbOrder.id
+                orderData: payload
               }),
             });
 
             const verifyData = await verifyRes.json();
-            if (!verifyData.success) {
-              throw new Error('Payment verification failed');
+            if (!isMounted) return;
+            if (!verifyData.success || !verifyData.order) {
+              throw new Error(verifyData.message || 'Payment verification failed');
             }
+            dbOrder = verifyData.order;
           } catch (rzpError: any) {
+            if (!isMounted) return;
             console.log('Razorpay Error:', rzpError);
-            // Handle payment cancellation or failure
             Alertt.alert('Payment Failed', rzpError.description || 'Payment was cancelled');
             onFailure();
             return;
           }
+        } else {
+          // COD Flow: Create Database Order immediately
+          const response = await fetch(`${API_BASE_URL}/orders`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${userToken}`,
+            },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await response.json();
+          if (!isMounted) return;
+
+          if (!data.success || !data.order) {
+            throw new Error(data.error || 'Failed to place order');
+          }
+
+          dbOrder = data.order;
         }
 
         // 3. Finalize Success
@@ -212,10 +222,18 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
     paymentMode
   ]);
 
+  const isNeutralTheme = !success && paymentMode === 'online';
+  const bgColor = isNeutralTheme ? '#f8fafc' : Colors.primary;
+  const barStyle = isNeutralTheme ? 'dark-content' : 'light-content';
+  const barBgColor = isNeutralTheme ? '#f8fafc' : Colors.primary;
+  const textColor = isNeutralTheme ? '#0f172a' : '#ffffff';
+  const spinnerColor = isNeutralTheme ? Colors.primary : '#ffffff';
+  const headerText = isNeutralTheme ? 'Awaiting Payment' : 'Breathe In';
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
-      <View style={styles.container}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: bgColor }]}>
+      <StatusBar barStyle={barStyle} backgroundColor={barBgColor} />
+      <View style={[styles.container, { backgroundColor: bgColor }]}>
         {success ? (
           <Animated.View style={[styles.content, { opacity: opacityAnim, transform: [{ scale: scaleAnim }] }]}>
             <View style={styles.successIconCircle}>
@@ -225,9 +243,9 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
           </Animated.View>
         ) : (
           <View style={styles.content}>
-            <Text style={styles.holdOnText}>Breathe In</Text>
-            <ActivityIndicator size="large" color="#fff" style={styles.spinner} />
-            <Text style={styles.subText}>{statusText}</Text>
+            <Text style={[styles.holdOnText, { color: textColor }]}>{headerText}</Text>
+            <ActivityIndicator size="large" color={spinnerColor} style={styles.spinner} />
+            <Text style={[styles.subText, { color: textColor }]}>{statusText}</Text>
           </View>
         )}
       </View>

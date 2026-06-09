@@ -237,5 +237,3 @@ const styles = StyleSheet.create({
 });
 
 export default PaymentScreen;
-
-export default PaymentScreen;

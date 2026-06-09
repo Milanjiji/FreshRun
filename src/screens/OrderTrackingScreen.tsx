@@ -11,6 +11,7 @@ import {
   Dimensions,
   Animated,
   PanResponder,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -348,10 +349,19 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
                     <Icon name="person" size={20} color="#fff" />
                  </View>
                  <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={styles.infoTitle}>Rahul Kumar</Text>
+                    <Text style={styles.infoTitle}>
+                       {trackedOrder?.delivery_partner_name || 'Delivery Partner'}
+                    </Text>
                     <Text style={styles.infoSub}>FreshRun Delivery Partner</Text>
                  </View>
-                 <TouchableOpacity style={styles.callBtn}>
+                 <TouchableOpacity 
+                    style={styles.callBtn}
+                    onPress={() => {
+                      if (trackedOrder?.delivery_partner_phone) {
+                        Linking.openURL(`tel:${trackedOrder.delivery_partner_phone}`);
+                      }
+                    }}
+                 >
                     <Icon name="call" size={18} color="#fff" />
                  </TouchableOpacity>
               </View>

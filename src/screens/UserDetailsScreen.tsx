@@ -394,4 +394,3 @@ const styles = StyleSheet.create({
   activeSaveButton: { backgroundColor: '#000' },
 });
 
-export default UserDetailsScreen;

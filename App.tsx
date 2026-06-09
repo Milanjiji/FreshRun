@@ -720,6 +720,7 @@ function App() {
           locationData={locationData}
           userToken={userToken}
           isSelfPickup={checkoutIsSelfPickup}
+          paymentMode={checkoutPaymentMode}
           onSuccess={(id, order) => {
             console.log('\n✅ [OrderPlacement] STEP 5: Order successfully completed and stored in local state. ID:', id);
             console.log('Order Details:', JSON.stringify(order, null, 2));
@@ -754,7 +755,8 @@ function App() {
           userData={userData}
           userToken={userToken}
           onBack={() => setShowPayment(false)}
-          onOrderConfirmed={() => {
+          onOrderConfirmed={(dummyId, selectedMode) => {
+            setCheckoutPaymentMode(selectedMode);
             setShowPayment(false);
             setShowCart(false);
             setShowOrderConfirming(true);
