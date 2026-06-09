@@ -78,7 +78,10 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
 
   useEffect(() => {
     if (activeOrder?.id === orderId) {
-      setTrackedOrder(activeOrder);
+      setTrackedOrder((prev: any) => ({
+        ...activeOrder,
+        delivery_pin: activeOrder.delivery_pin || prev?.delivery_pin,
+      }));
     }
   }, [activeOrder, orderId]);
 
@@ -111,7 +114,10 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
         }
 
         if (isMounted) {
-          setTrackedOrder(data.order);
+          setTrackedOrder((prev: any) => ({
+            ...data.order,
+            delivery_pin: data.order.delivery_pin || prev?.delivery_pin,
+          }));
         }
       } catch (error: any) {
         if (isMounted) {
@@ -169,7 +175,11 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
     socketRef.current.on('order_status_changed', (updatedOrder: any) => {
       console.log('[OrderTracking] Received status update:', updatedOrder.status);
       if (String(updatedOrder?.id) === String(orderId)) {
-        setTrackedOrder(updatedOrder);
+        setTrackedOrder((prev: any) => ({
+          ...prev,
+          ...updatedOrder,
+          delivery_pin: updatedOrder?.delivery_pin || prev?.delivery_pin,
+        }));
       }
     });
 
@@ -340,6 +350,24 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
           </View>
 
           <View style={styles.divider} />
+
+          {trackedOrder?.delivery_pin && (
+            <View style={styles.detailSection}>
+              <Text style={styles.sectionHeading}>Delivery Verification</Text>
+              <View style={[styles.infoCard, { justifyContent: 'space-between', alignItems: 'center' }]}>
+                 <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <Icon name="shield-checkmark" size={20} color={Colors.primary} />
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                       <Text style={styles.infoTitle}>Share PIN with Partner</Text>
+                       <Text style={styles.infoSub}>Share this PIN only after receiving your order</Text>
+                    </View>
+                 </View>
+                 <Text style={{ fontSize: 22, fontFamily: Fonts.black, color: Colors.primary, letterSpacing: 1 }}>
+                    {trackedOrder.delivery_pin}
+                 </Text>
+              </View>
+            </View>
+          )}
 
           {trackedOrder?.delivery_boy_opted && (
             <View style={styles.detailSection}>
