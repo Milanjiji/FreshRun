@@ -60,6 +60,42 @@ appCheck().initializeAppCheck({
 });
 // App Check is separate from Firebase Auth phone-number app verification.
 
+// Intercept global fetch to automatically inject a fresh Firebase ID token
+const originalFetch = global.fetch;
+global.fetch = async (input, init) => {
+  if (typeof input === 'string' && input.startsWith(API_BASE_URL)) {
+    try {
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        const token = await currentUser.getIdToken(false);
+        if (token) {
+          init = init || {};
+          let headers = init.headers || {};
+          if (headers instanceof Headers) {
+            headers.set('Authorization', `Bearer ${token}`);
+          } else if (Array.isArray(headers)) {
+            const authIdx = headers.findIndex(([k]) => k.toLowerCase() === 'authorization');
+            if (authIdx > -1) {
+              headers[authIdx] = ['Authorization', `Bearer ${token}`];
+            } else {
+              headers.push(['Authorization', `Bearer ${token}`]);
+            }
+          } else {
+            headers = {
+              ...headers,
+              'Authorization': `Bearer ${token}`
+            };
+          }
+          init.headers = headers;
+        }
+      }
+    } catch (error) {
+      console.error('[Fetch Interceptor] Error injecting token:', error);
+    }
+  }
+  return originalFetch(input, init);
+};
+
 function App() {
 
   const [userToken, setUserToken] = useState<string | null>(null);
