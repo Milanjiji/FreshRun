@@ -8,7 +8,7 @@ require Pod::Executable.execute_command('node', ['-p',
 ENV['RCT_BUILD_FROM_SOURCE'] = '1'
 $RNFirebaseAsStaticFramework = true
 
-platform :ios, min_ios_version_supported
+platform :ios, '15.5'
 prepare_react_native_project!
 
 linkage = ENV['USE_FRAMEWORKS'] || 'static'

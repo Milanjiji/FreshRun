@@ -1,4 +1,8 @@
 <resources>
     <string name="app_name">FreshRun</string>
     <string name="google_maps_key">AIzaSyC1s78p6_QNfF7eoMbKnMcu5wLqOdLyN9g</string>
+    <!-- Staging: 1TbwHdYmwIEw5N1m1Q-gkcIfCoSR4yGGSh3g4g -->
+    <!-- Production: DCTT7NQTIB5LID56hJ0bkqsYkRBc4yGGSh3g4g -->
+    <string name="CodePushDeploymentKey" translatable="false">1TbwHdYmwIEw5N1m1Q-gkcIfCoSR4yGGSh3g4g</string>
+    <string name="CodePushServerUrl" translatable="false">https://api.revopush.org</string>
 </resources>

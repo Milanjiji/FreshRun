@@ -32,7 +32,7 @@ const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress,
           <Text style={styles.timeText}>{formatDeliveryTime(avgTime || 20)}</Text>
           <TouchableOpacity style={styles.addressContainer} onPress={onAddressPress}>
             <Text style={styles.addressLabel} numberOfLines={1}>
-              To Main Address: <Text style={styles.addressValue}>{displayAddress}</Text>
+              Address: <Text style={styles.addressValue}>{displayAddress}</Text>
             </Text>
             <Icon name="chevron-down" size={16} color="#fff" style={styles.chevronIcon} />
           </TouchableOpacity>

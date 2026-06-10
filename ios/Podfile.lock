@@ -3,6 +3,12 @@ PODS:
     - GoogleUtilities/Environment (~> 8.0)
     - GoogleUtilities/UserDefaults (~> 8.0)
     - PromisesObjC (~> 2.4)
+  - Base64 (1.1.2)
+  - CodePush (2.5.0):
+    - Base64 (~> 1.1)
+    - JWT (~> 3.0.0-beta.12)
+    - React-Core
+    - SSZipArchive (~> 2.5.5)
   - FBLazyVector (0.85.1)
   - Firebase/AppCheck (11.11.0):
     - Firebase/CoreOnly
@@ -85,12 +91,15 @@ PODS:
   - hermes-engine (250829098.0.10):
     - hermes-engine/Pre-built (= 250829098.0.10)
   - hermes-engine/Pre-built (250829098.0.10)
+  - JWT (3.0.0-beta.14):
+    - Base64 (~> 1.1.2)
   - nanopb (3.30910.0):
     - nanopb/decode (= 3.30910.0)
     - nanopb/encode (= 3.30910.0)
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
   - PromisesObjC (2.4.0)
+  - razorpay-pod (1.5.4)
   - RCTDeprecation (0.85.1)
   - RCTRequired (0.85.1)
   - RCTSwiftUI (0.85.1)
@@ -1541,6 +1550,29 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-razorpay (3.0.0):
+    - hermes-engine
+    - razorpay-pod
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - react-native-safe-area-context (5.7.0):
     - hermes-engine
     - RCTRequired
@@ -2061,9 +2093,11 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - SSZipArchive (2.5.5)
   - Yoga (0.0.0)
 
 DEPENDENCIES:
+  - "CodePush (from `../node_modules/@revopush/react-native-code-push`)"
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
@@ -2106,6 +2140,7 @@ DEPENDENCIES:
   - "react-native-geolocation (from `../node_modules/@react-native-community/geolocation`)"
   - react-native-maps (from `../node_modules/react-native-maps`)
   - react-native-mmkv (from `../node_modules/react-native-mmkv`)
+  - react-native-razorpay (from `../node_modules/react-native-razorpay`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - react-native-webview (from `../node_modules/react-native-webview`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
@@ -2153,6 +2188,7 @@ DEPENDENCIES:
 SPEC REPOS:
   trunk:
     - AppCheckCore
+    - Base64
     - Firebase
     - FirebaseAppCheck
     - FirebaseAppCheckInterop
@@ -2166,11 +2202,16 @@ SPEC REPOS:
     - GoogleDataTransport
     - GoogleUtilities
     - GTMSessionFetcher
+    - JWT
     - nanopb
     - PromisesObjC
+    - razorpay-pod
     - RecaptchaInterop
+    - SSZipArchive
 
 EXTERNAL SOURCES:
+  CodePush:
+    :path: "../node_modules/@revopush/react-native-code-push"
   FBLazyVector:
     :path: "../node_modules/react-native/Libraries/FBLazyVector"
   hermes-engine:
@@ -2254,6 +2295,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-maps"
   react-native-mmkv:
     :path: "../node_modules/react-native-mmkv"
+  react-native-razorpay:
+    :path: "../node_modules/react-native-razorpay"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
   react-native-webview:
@@ -2343,6 +2386,8 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   AppCheckCore: cc8fd0a3a230ddd401f326489c99990b013f0c4f
+  Base64: cecfb41a004124895a7bcee567a89bae5a89d49b
+  CodePush: fe7975aeb7f37585bdfd624c5182a72219d32b2d
   FBLazyVector: ed7eadee1965b0b918ca9d0f2c2328f7eb3fd095
   Firebase: 6a8f201c61eda24e98f1ce2b44b1b9c2caf525cc
   FirebaseAppCheck: cd8a337021ec2779e6b73eed8d8ba8247be6082c
@@ -2358,8 +2403,10 @@ SPEC CHECKSUMS:
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   GTMSessionFetcher: fc75fc972958dceedee61cb662ae1da7a83a91cf
   hermes-engine: 6b50032c53488a57195ea4f67f09a825fca32968
+  JWT: ef71dfb03e1f842081e64dc42eef0e164f35d251
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
+  razorpay-pod: 3ba80419f3315352d6ffa336a194ad95ab249700
   RCTDeprecation: d69f6f20a20f669a0aa3115ab1109f28e98ae03e
   RCTRequired: 305a8212b9d90fa335b6a6a960e5212bbb434484
   RCTSwiftUI: 00bb3e8491b1368a47563ef0c8824601d9875ed3
@@ -2399,6 +2446,7 @@ SPEC CHECKSUMS:
   react-native-geolocation: 33894c821abbf67380755e5c888cb3cf38c5b11f
   react-native-maps: 835f0c441a3824933b0ce003decf8b56ac716324
   react-native-mmkv: f456933f016feedd215334847604eee8fe3a1557
+  react-native-razorpay: 4012f5be1f763204449dbce2c7466497fb4ee777
   react-native-safe-area-context: 01165438d8d2bc6bf418b5fdc8491d92bf59ceeb
   react-native-webview: 9a38502931624b1ced3c7fb2b41b7c1c0d47ecdd
   React-NativeModulesApple: 45937c331fdba17eda34a57eae0b5700916c5a94
@@ -2442,8 +2490,9 @@ SPEC CHECKSUMS:
   RNFBMessaging: 099972ab397d61815f32610514b0573d1db2b1e1
   RNNotifee: 4a6ee5c7deaf00e005050052d73ee6315dff7ec9
   RNVectorIcons: d7dae55a6a2cfa1b0cf49f2788d2c30816762558
+  SSZipArchive: c69881e8ac5521f0e622291387add5f60f30f3c4
   Yoga: 211ac8cc822515c4db38d20477d2e0273dc48d87
 
-PODFILE CHECKSUM: 726df8602bb3ead90aa890650acb0126f14c898b
+PODFILE CHECKSUM: d3dc9cc5a8d13b9108b9ed59b5d61db6b634db24
 
 COCOAPODS: 1.16.2
