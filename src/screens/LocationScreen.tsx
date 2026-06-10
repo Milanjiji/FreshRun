@@ -19,8 +19,8 @@ import { Fonts } from '../theme/typography';
 import { Alertt } from '../components/Alertt';
 
 const DEFAULT_LOCATION = {
-  latitude: 11.2588,
-  longitude: 75.7804,
+  latitude: 22.4944,
+  longitude: 88.1670,
 };
 
 const QUICK_LOCATION_OPTIONS = {
@@ -136,7 +136,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         {
           title: 'Location Permission',
-          message: 'FreshRun needs access to your location to find the best results nearby.',
+          message: 'FreshRush needs access to your location to find the best results nearby.',
           buttonNeutral: 'Ask Me Later',
           buttonNegative: 'Cancel',
           buttonPositive: 'OK',

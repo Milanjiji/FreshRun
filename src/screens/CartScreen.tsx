@@ -375,7 +375,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
               <Icon name="chevron-down" size={14} color="#333" />
             </View>
             <Text style={styles.addressDetail} numberOfLines={1}>
-              House, Punnapra North, Alap...
+              House, Bauria, Howrah...
             </Text>
           </View>
           <View style={styles.headerRight}>
@@ -655,7 +655,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
                          ? `Store is too far for delivery`
                          : (Object.values(productStatuses).some(s => !s.is_active || s.is_stock_out) 
                             ? 'Some items are currently unavailable' 
-                            : 'This FreshRun store is currently unserviceable')}
+                            : 'This FreshRush store is currently unserviceable')}
                      </Text>
                      <Text style={styles.unserviceableMsgSub}>
                        {isTooFar 

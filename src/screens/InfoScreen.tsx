@@ -24,20 +24,32 @@ const InfoScreen: React.FC<InfoScreenProps> = ({ type, onBack }) => {
     switch (type) {
       case 'about':
         return {
-          title: 'About FreshRun',
+          title: 'About Us',
           icon: 'information-circle',
           sections: [
             {
               heading: 'Who We Are',
-              content: 'FreshRun is Alappuzha\'s own hyper-local delivery platform. We connect you with your favorite local stores for groceries, food, and essentials.',
+              content: 'FreshRush was launched in Bauria, Howrah, West Bengal with a vision to connect local shops and local customers through technology. We connect you with your favorite nearby local stores for groceries, food, and essentials.',
             },
             {
               heading: 'Our Mission',
-              content: 'To provide the fastest and most reliable delivery service while supporting local vendors and building a stronger community.',
+              content: 'To make every local shop digitally accessible and every customer\'s daily shopping experience faster, easier, and more convenient.',
+            },
+            {
+              heading: 'Our Vision',
+              content: 'To become the most trusted local commerce platform where customers, stores, and delivery partners grow together.',
             },
             {
               heading: 'Quality & Trust',
-              content: 'Every store on FreshRun is manually verified and approved to ensure you get only the best quality products.',
+              content: 'Every store on FreshRush is manually verified and approved to ensure you get only the best quality products.',
+            },
+            {
+              heading: 'Founder & CEO',
+              content: 'Ashish Mishra\nAshish Mishra founded FreshRush with the vision of helping local businesses embrace digital technology and reach more customers in their communities.',
+            },
+            {
+              heading: 'Developer Credit',
+              content: 'Developed by Milan J (Kerala based developer)\nEmail: milanjiji7172@gmail.com',
             },
           ],
         };
@@ -67,7 +79,7 @@ const InfoScreen: React.FC<InfoScreenProps> = ({ type, onBack }) => {
           sections: [
             {
               heading: 'Agreement',
-              content: 'By using FreshRun, you agree to our terms of service, including payment and delivery policies.',
+              content: 'By using FreshRush, you agree to our terms of service, including payment and delivery policies.',
             },
             {
               heading: 'User Conduct',
@@ -75,7 +87,7 @@ const InfoScreen: React.FC<InfoScreenProps> = ({ type, onBack }) => {
             },
             {
               heading: 'Liability',
-              content: 'FreshRun acts as a facilitator between vendors and customers. We are not liable for the quality of items prepared by vendors.',
+              content: 'FreshRush acts as a facilitator between vendors and customers. We are not liable for the quality of items prepared by vendors.',
             },
           ],
         };
@@ -101,7 +113,7 @@ const InfoScreen: React.FC<InfoScreenProps> = ({ type, onBack }) => {
           sections: [
             {
               heading: 'Delivery Area',
-              content: 'We currently deliver within Alappuzha (Punnapra) and Calicut within a 5-7km radius of partner stores.',
+              content: 'We currently deliver within Bauria, Howrah, West Bengal within a 5-7km radius of partner stores.',
             },
             {
               heading: 'Delivery Time',
@@ -116,11 +128,15 @@ const InfoScreen: React.FC<InfoScreenProps> = ({ type, onBack }) => {
           sections: [
             {
               heading: 'Customer Support',
-              content: 'Email: support@freshrun.com\nPhone: +91 98765 43210',
+              content: 'Email: support@freshrush.com\nPhone: 9088568423\nWebsite: www.freshrush.in',
             },
             {
               heading: 'Office Address',
-              content: 'FreshRun HQ, Beach Road, Punnapra, Alappuzha, Kerala - 688005',
+              content: 'FreshRush HQ, Bauria, Howrah, West Bengal, India',
+            },
+            {
+              heading: 'Developer Contact',
+              content: 'Developer: Milan J (Kerala based developer)\nEmail: milanjiji7172@gmail.com',
             },
           ],
         };
@@ -135,21 +151,12 @@ const InfoScreen: React.FC<InfoScreenProps> = ({ type, onBack }) => {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
       
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Icon name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{data.title}</Text>
-        <View style={styles.headerRight}>
-          <Icon name={data.icon} size={24} color={Colors.primary} />
-        </View>
-      </View>
+      <TouchableOpacity onPress={onBack} style={styles.backCircleButton}>
+        <Icon name="chevron-back" size={24} color="#333" />
+      </TouchableOpacity>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.banner}>
-           <View style={styles.iconCircle}>
-              <Icon name={data.icon} size={40} color={Colors.primary} />
-           </View>
            <Text style={styles.bannerTitle}>{data.title}</Text>
            <Text style={styles.bannerSubtitle}>Last updated: June 2026</Text>
         </View>
@@ -162,7 +169,7 @@ const InfoScreen: React.FC<InfoScreenProps> = ({ type, onBack }) => {
         ))}
 
         <View style={styles.footer}>
-           <Text style={styles.footerText}>© 2026 FreshRun Technologies. All rights reserved.</Text>
+            <Text style={styles.footerText}>© 2026 FreshRush Technologies. All rights reserved.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -174,34 +181,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.white,
   },
-  header: {
-    flexDirection: 'row',
+  backCircleButton: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.white,
+    justifyContent: 'center',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  backButton: {
-    padding: 5,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontFamily: Fonts.bold,
-    color: '#333',
-  },
-  headerRight: {
-    width: 34,
-    alignItems: 'flex-end',
+    borderWidth: 1,
+    borderColor: '#eef0f2',
   },
   scrollContent: {
     paddingBottom: 40,
+    backgroundColor: Colors.white,
   },
   banner: {
-    alignItems: 'center',
-    paddingVertical: 30,
-    backgroundColor: Colors.background,
+    alignItems: 'flex-start',
+    paddingHorizontal: 25,
+    paddingTop: 85,
+    paddingBottom: 20,
+    backgroundColor: Colors.white,
     marginBottom: 20,
   },
   iconCircle: {
@@ -219,8 +222,9 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   bannerTitle: {
-    fontSize: 22,
+    fontSize: 28,
     fontFamily: Fonts.black,
+    fontWeight: '900',
     color: '#1a1a1a',
   },
   bannerSubtitle: {

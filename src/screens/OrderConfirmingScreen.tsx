@@ -110,7 +110,7 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
             currency: rzpData.currency,
             key: rzpData.key,
             amount: rzpData.amount,
-            name: 'FreshRun',
+            name: 'FreshRush',
             order_id: rzpData.order_id,
             prefill: {
               email: userData?.email || '',

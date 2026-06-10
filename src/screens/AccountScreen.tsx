@@ -79,7 +79,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
     { id: 'q1', title: 'Saved\nAddress', icon: 'location-outline' },
     { id: 'q2', title: 'Payment\nModes', icon: 'wallet-outline' },
     { id: 'q3', title: 'My\nRefunds', icon: 'refresh-circle-outline' },
-    { id: 'q4', title: 'FreshRun\nMoney', icon: 'wallet-outline' },
+    { id: 'q4', title: 'FreshRush\nMoney', icon: 'wallet-outline' },
   ];
 
   const handleLogout = () => {
@@ -131,8 +131,8 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
       <View key={order.id} style={styles.orderCard}>
         <View style={styles.orderHeader}>
           <View>
-            <Text style={styles.orderStoreName}>{order.store_name || 'FreshRun Store'}</Text>
-            <Text style={styles.orderLocation}>{order.store_address || 'Punnapra, Alappuzha'}</Text>
+            <Text style={styles.orderStoreName}>{order.store_name || 'FreshRush Store'}</Text>
+            <Text style={styles.orderLocation}>{order.store_address || 'Bauria, Howrah'}</Text>
             <Text style={styles.orderAmount}>₹{order.total_amount}</Text>
           </View>
           <View style={styles.statusBadge}>

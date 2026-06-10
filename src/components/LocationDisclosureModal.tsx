@@ -38,7 +38,7 @@ const LocationDisclosureModal: React.FC<LocationDisclosureModalProps> = ({
           </View>
           <Text style={styles.title}>Use your location</Text>
           <Text style={styles.message}>
-            FreshRun collects location data to enable real-time order tracking and 
+            FreshRush collects location data to enable real-time order tracking and 
             to find the best stores nearby, even when the app is closed or not in use.
           </Text>
           <View style={styles.buttonRow}>

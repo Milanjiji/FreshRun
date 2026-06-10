@@ -380,7 +380,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
                     <Text style={styles.infoTitle}>
                        {trackedOrder?.delivery_partner_name || 'Delivery Partner'}
                     </Text>
-                    <Text style={styles.infoSub}>FreshRun Delivery Partner</Text>
+                    <Text style={styles.infoSub}>FreshRush Delivery Partner</Text>
                  </View>
                  <TouchableOpacity 
                     style={styles.callBtn}
@@ -456,7 +456,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
             <View style={styles.infoCard}>
                <Icon name="basket" size={20} color={Colors.primary} />
                <View style={{ marginLeft: 12 }}>
-                  <Text style={styles.infoTitle}>{trackedOrder?.store_name || "FreshRun Partner Store"}</Text>
+                  <Text style={styles.infoTitle}>{trackedOrder?.store_name || "FreshRush Partner Store"}</Text>
                   <Text style={styles.infoSub}>Order ID: #{orderId?.split('-')[0].toUpperCase()}</Text>
                </View>
             </View>

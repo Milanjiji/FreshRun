@@ -11,7 +11,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
     const granted = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
       {
-        title: 'FreshRun Notification Permission',
+        title: 'FreshRush Notification Permission',
         message: 'We need permission to send you order updates.',
         buttonPositive: 'Allow',
       },
