@@ -417,6 +417,12 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
                   <Text style={styles.billLabel}>Delivery Fee</Text>
                   <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.delivery_fee || 0).toFixed(2)}</Text>
                </View>
+               {parseFloat(trackedOrder?.extra_store_charge) > 0 && (
+                 <View style={styles.billRow}>
+                    <Text style={styles.billLabel}>Extra Store Charge</Text>
+                    <Text style={styles.billValue}>₹{parseFloat(trackedOrder?.extra_store_charge).toFixed(2)}</Text>
+                 </View>
+               )}
                {parseFloat(trackedOrder?.rainy_surge_fee) > 0 && (
                  <View style={styles.billRow}>
                     <Text style={styles.billLabel}>Rainy Surge Fee</Text>
@@ -442,6 +448,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
                     parseFloat(trackedOrder?.total_amount || 0) || 
                     (parseFloat(trackedOrder?.subtotal || 0) + 
                      parseFloat(trackedOrder?.delivery_fee || 0) + 
+                     parseFloat(trackedOrder?.extra_store_charge || 0) + 
                      parseFloat(trackedOrder?.rainy_surge_fee || 0) + 
                      parseFloat(trackedOrder?.late_night_fee || 0) + 
                      parseFloat(trackedOrder?.delivery_tip || 0) +

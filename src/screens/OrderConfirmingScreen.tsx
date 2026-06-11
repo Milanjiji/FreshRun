@@ -22,6 +22,7 @@ interface OrderConfirmingScreenProps {
   deliveryTip: number;
   rainyFee: number;
   lateNightFee: number;
+  extraStoreCharge?: number;
   userData: any;
   locationData?: { latitude: number; longitude: number } | null;
   userToken: string | null;
@@ -38,6 +39,7 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
   deliveryTip,
   rainyFee,
   lateNightFee,
+  extraStoreCharge = 0,
   userData,
   locationData,
   userToken,
@@ -62,11 +64,12 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
           store_id: storeId,
           items: cartItems,
           total_amount: totalAmount,
-          subtotal: totalAmount - deliveryFee - deliveryTip - rainyFee - lateNightFee,
+          subtotal: totalAmount - deliveryFee - deliveryTip - rainyFee - lateNightFee - extraStoreCharge,
           delivery_fee: deliveryFee,
           delivery_tip: deliveryTip,
           rainy_surge_fee: rainyFee,
           late_night_fee: lateNightFee,
+          extra_store_charge: extraStoreCharge,
           is_pickup: isSelfPickup,
           payment_mode: paymentMode,
           delivery_address: {

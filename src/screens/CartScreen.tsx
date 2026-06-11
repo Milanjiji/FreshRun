@@ -35,7 +35,7 @@ interface CartScreenProps {
   clearCart: () => void;
   locationAddress?: string;
   socket?: any;
-  onProceedToCheckout?: (totalAmount: number, deliveryFee: number, deliveryTip: number, isSelfPickup: boolean, rainyFee: number, lateNightFee: number) => void;
+  onProceedToCheckout?: (totalAmount: number, deliveryFee: number, deliveryTip: number, isSelfPickup: boolean, rainyFee: number, lateNightFee: number, extraStoreCharge?: number) => void;
 }
 
 const CartScreen: React.FC<CartScreenProps> = ({ 
@@ -158,11 +158,21 @@ const CartScreen: React.FC<CartScreenProps> = ({
 
               storeGroups[sId].forEach(cartItem => {
                 const itemIdStr = String(cartItem.id);
-                const liveProd = storeProducts.find((p: any) => String(p.id) === itemIdStr);
+                const [prodId, varId] = itemIdStr.split('-');
+                const liveProd = storeProducts.find((p: any) => String(p.id) === (prodId || itemIdStr));
                 
                 if (liveProd) {
-                  const isProdActive = Boolean(liveProd.is_active) && isStoreActive;
-                  const isProdStockOut = Boolean(liveProd.is_stock_out) || (liveProd.stock_quantity !== undefined && liveProd.stock_quantity <= 0);
+                  let isProdActive = Boolean(liveProd.is_active) && isStoreActive;
+                  let isProdStockOut = Boolean(liveProd.is_stock_out) || (liveProd.stock_quantity !== undefined && liveProd.stock_quantity <= 0);
+                  
+                  if (varId && Array.isArray(liveProd.variants)) {
+                    const variant = liveProd.variants.find((v: any) => String(v.id) === varId);
+                    if (variant) {
+                      isProdStockOut = Boolean(variant.is_stock_out) || (variant.stock_quantity !== undefined && variant.stock_quantity <= 0);
+                    } else {
+                      isProdActive = false; // Variant not found anymore
+                    }
+                  }
                   
                   statuses[itemIdStr] = { is_active: isProdActive, is_stock_out: isProdStockOut };
                   if (!isProdActive || isProdStockOut) anyItemUnavailable = true;
@@ -291,7 +301,12 @@ const CartScreen: React.FC<CartScreenProps> = ({
       effectiveTip = 0;
     }
 
-    let totalPayable = sub + hFee + dFee + rFee + lnFee + effectiveTip;
+    const storeIds = [...new Set(cartItems.map(item => String(item.store_id || (item as any).storeId)).filter(id => id && id !== 'undefined' && id !== 'null'))];
+    const extraStoreChargeSetting = parseFloat(appSettings?.extra_store_charge) || 20;
+    const extraStoreCharge = storeIds.length > 1 ? (storeIds.length - 1) * extraStoreChargeSetting : 0;
+    const effectiveExtraStoreCharge = isSelfPickup ? 0 : extraStoreCharge;
+
+    let totalPayable = sub + hFee + dFee + rFee + lnFee + effectiveTip + effectiveExtraStoreCharge;
 
     // Dev Bypass: If subtotal is exactly 1, force total to 1
     if (sub === 1) {
@@ -307,11 +322,12 @@ const CartScreen: React.FC<CartScreenProps> = ({
       lateNightFee: lnFee,
       isLateNight: isLateNightCheck,
       deliveryTip: effectiveTip,
+      extraStoreCharge: effectiveExtraStoreCharge,
       total: totalPayable
     };
   }, [cartItems, productStatuses, storeData, appSettings, deliveryTip, isSelfPickup]);
 
-  const { subtotal, totalSavings, handlingFee, deliveryFee, rainyFee, lateNightFee, isLateNight, total, deliveryTip: effectiveTip } = billingInfo;
+  const { subtotal, totalSavings, handlingFee, deliveryFee, rainyFee, lateNightFee, isLateNight, total, deliveryTip: effectiveTip, extraStoreCharge } = billingInfo;
 
 
 
@@ -439,7 +455,9 @@ const CartScreen: React.FC<CartScreenProps> = ({
                   </View>
                   <View style={styles.itemInfo}>
                     <Text style={[styles.itemName, isItemUnavailable && { color: '#999' }]}>{item.name}</Text>
-                    <Text style={[styles.itemWeight, isItemUnavailable && { color: '#bbb' }]}>95 g</Text>
+                    {item.unit ? (
+                      <Text style={[styles.itemWeight, isItemUnavailable && { color: '#bbb' }]}>{item.unit}</Text>
+                    ) : null}
                     {isItemUnavailable && (
                       <Text style={styles.itemUnavailableMsg}>
                         {status?.is_stock_out ? 'OUT OF STOCK' : 'CURRENTLY UNAVAILABLE'}
@@ -608,6 +626,15 @@ const CartScreen: React.FC<CartScreenProps> = ({
                   }
                 </Text>
 
+                {extraStoreCharge > 0 && (
+                  <View style={styles.billRow}>
+                     <View style={styles.rowInline}>
+                        <Text style={styles.billLabelDashed}>Extra Store Charge</Text>
+                        <Icon name="basket" size={14} color={Colors.primary} style={{ marginLeft: 5 }} />
+                     </View>
+                     <Text style={styles.billValue}>₹{extraStoreCharge.toFixed(2)}</Text>
+                  </View>
+                )}
 
                 <View style={styles.billDividerSolid} />
                 <View style={styles.totalRow}>
@@ -671,15 +698,15 @@ const CartScreen: React.FC<CartScreenProps> = ({
              </>
            ) : (
              <TouchableOpacity 
-               style={styles.checkoutBtn} 
-               disabled={checkingServiceability}
-               onPress={() => onProceedToCheckout && onProceedToCheckout(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee)}
-             >
-                <Text style={styles.checkoutBtnText}>
-                  {checkingServiceability ? 'Checking...' : 'Proceed to Checkout'}
-                </Text>
-                <Icon name="chevron-forward" size={18} color="#fff" />
-             </TouchableOpacity>
+                style={styles.checkoutBtn} 
+                disabled={checkingServiceability}
+                onPress={() => onProceedToCheckout && onProceedToCheckout(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee, extraStoreCharge)}
+              >
+                 <Text style={styles.checkoutBtnText}>
+                   {checkingServiceability ? 'Checking...' : 'Proceed to Checkout'}
+                 </Text>
+                 <Icon name="chevron-forward" size={18} color="#fff" />
+              </TouchableOpacity>
            )}
         </View>
       </View>

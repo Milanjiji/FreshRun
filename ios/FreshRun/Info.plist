@@ -78,5 +78,17 @@
 	<string>66Hkg7rKnZeaJKIbfBpO1yPN8JT04yGGSh3g4g</string>
 	<key>CodePushServerURL</key>
 	<string>https://api.revopush.org</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.419337772453-4fk8agc8k0306jf0ejrkd7rs8sfeehgv</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
+

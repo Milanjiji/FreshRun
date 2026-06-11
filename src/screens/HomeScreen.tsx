@@ -49,6 +49,15 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const socketRef = useRef<any>(null);
 
+  const [categories, setCategories] = useState<any[]>([
+    { id: "restaurants", name: "RESTAURANTS", icon: "restaurant-outline" },
+    { id: "street-food", name: "STREET FOOD", icon: "pizza-outline" },
+    { id: "groceries", name: "GROCERIES", icon: "cart-outline" },
+    { id: "chicken", name: "CHICKEN", icon: "egg-outline" },
+    { id: "fish", name: "FISH", icon: "fish-outline" },
+    { id: "medicine", name: "MEDICINE", icon: "medkit-outline" }
+  ]);
+
   // Load cached delivery time on mount
   useEffect(() => {
     const cachedData = storage.getObject<any>('cached_delivery_time');
@@ -76,16 +85,45 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     };
   }, []);
 
-  const categories = [
-    { id: "restaurants", name: "RESTAURANTS", icon: "restaurant-outline" },
-    { id: "street-food", name: "STREET FOOD", icon: "pizza-outline" },
-    { id: "groceries", name: "GROCERIES", icon: "cart-outline" },
-    { id: "chicken", name: "CHICKEN", icon: "egg-outline" },
-    { id: "fish", name: "FISH", icon: "fish-outline" },
-    { id: "medicine", name: "MEDICINE", icon: "medkit-outline" }
-  ];
+
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/categories`);
+        const result = await response.json();
+        if (result.success && result.data) {
+          const formatted = result.data.map((cat: any) => ({
+            id: cat.slug,
+            name: cat.name.toUpperCase(),
+            icon: cat.icon || 'cart-outline'
+          }));
+          setCategories(formatted);
+          if (formatted.length > 0 && !selectedCategory) {
+            setSelectedCategory(formatted[0].id);
+          }
+        }
+      } catch (err) {
+        console.error('[HomeScreen] Error fetching categories:', err);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   const filters = ["Fast Delivery", "Rating 4.0+", "Pure Veg", "Offers"];
+
+  const fetchProductsForCategory = async () => {
+    try {
+      const baseUrl = API_BASE_URL;
+      const productRes = await fetch(`${baseUrl}/products?category=${selectedCategory}&is_veg=${isVeg}&include_inactive=true`);
+      const productResult = await productRes.json();
+      if (productResult.success) {
+        setProducts(productResult.data);
+      }
+    } catch (e) {
+      console.error('[HomeScreen] Error fetching products:', e);
+    }
+  };
 
   useEffect(() => {
     console.log('[HomeScreen] Location changed, triggering fresh fetch...');

@@ -35,7 +35,38 @@ const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({
 }) => {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, any>>({});
+  const [selectedSubcategory, setSelectedSubcategory] = useState('All');
   const socketRef = useRef<any>(null);
+
+  const subcategories = React.useMemo(() => {
+    const list = new Set<string>();
+    let hasUncategorized = false;
+    products.forEach((p: any) => {
+      if (p.subcategory && p.subcategory.trim()) {
+        list.add(p.subcategory.trim());
+      } else {
+        hasUncategorized = true;
+      }
+    });
+    const sorted = Array.from(list).sort();
+    if (hasUncategorized && sorted.length > 0) {
+      sorted.push('Others');
+    }
+    return sorted.length > 0 ? ['All', ...sorted] : [];
+  }, [products]);
+
+  const filteredProducts = React.useMemo(() => {
+    if (selectedSubcategory === 'All' || subcategories.length === 0) {
+      return products;
+    }
+    return products.filter((p: any) => {
+      if (selectedSubcategory === 'Others') {
+        return !p.subcategory || !p.subcategory.trim();
+      }
+      return p.subcategory === selectedSubcategory;
+    });
+  }, [products, selectedSubcategory, subcategories]);
 
   useEffect(() => {
     // Socket connection
@@ -137,92 +168,179 @@ const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({
           {/* Products List */}
           <View style={styles.productsSection}>
             <Text style={styles.sectionTitle}>ALL PRODUCTS</Text>
+
+            {subcategories.length > 1 && (
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.subcategoryScroll}
+              >
+                {subcategories.map((sub) => {
+                  const isActive = selectedSubcategory === sub;
+                  return (
+                    <TouchableOpacity
+                      key={sub}
+                      style={[
+                        styles.subcatChip,
+                        isActive && styles.subcatChipActive
+                      ]}
+                      onPress={() => setSelectedSubcategory(sub)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        styles.subcatText,
+                        isActive && styles.subcatTextActive
+                      ]}>
+                        {sub.toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
             
             {loading ? (
               <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 40 }} />
-            ) : products.length > 0 ? (
-              products.map((product) => (
-                <View key={product.id} style={[styles.productCard, !product.is_active && styles.productCardInactive]}>
-                  <View style={styles.productInfo}>
-                    <Text style={[styles.productName, !product.is_active && { color: '#999' }]}>{product.name}</Text>
-                    <Text style={styles.productDesc} numberOfLines={2}>
-                      {product.description || 'Delicious item prepared with fresh ingredients.'}
-                    </Text>
-                    <View style={styles.priceRow}>
-                      <Text style={[styles.price, !product.is_active && { color: '#999' }]}>
-                        ₹{product.discount_percent > 0 
-                          ? (product.price * (1 - product.discount_percent / 100)).toFixed(0) 
-                          : product.price}
+            ) : filteredProducts.length > 0 ? (
+               filteredProducts.map((product) => {
+                const hasVars = Array.isArray(product.variants) && product.variants.length > 0;
+                const activeVar = hasVars 
+                  ? (selectedVariants[product.id] || product.variants[0]) 
+                  : null;
+
+                // Determine active values to show
+                const displayPrice = activeVar ? activeVar.price : product.price;
+                const displayDiscount = activeVar ? (activeVar.discount_percent || 0) : (product.discount_percent || 0);
+                const displayStock = activeVar ? (activeVar.stock_quantity || 0) : (product.stock_quantity || 0);
+                const displayStockOut = activeVar ? (activeVar.is_stock_out || false) : product.is_stock_out;
+                const displayUnit = activeVar ? activeVar.unit : product.unit;
+                const activeId = activeVar ? `${product.id}-${activeVar.id}` : product.id;
+                
+                const cartItem = cartItems.find(item => item.id === activeId);
+
+                return (
+                  <View key={product.id} style={[styles.productCard, !product.is_active && styles.productCardInactive]}>
+                    <View style={styles.productInfo}>
+                      <Text style={[styles.productName, !product.is_active && { color: '#999' }]}>{product.name}</Text>
+                      
+                      {/* Show unit if not variants */}
+                      {!hasVars && displayUnit ? (
+                        <Text style={styles.productUnitText}>{displayUnit}</Text>
+                      ) : null}
+
+                      <Text style={styles.productDesc} numberOfLines={2}>
+                        {product.description || 'Delicious item prepared with fresh ingredients.'}
                       </Text>
-                      {product.discount_percent > 0 && (
-                        <Text style={styles.originalPrice}>₹{product.price}</Text>
-                      )}
-                      {product.discount_percent > 0 && product.is_active && (
-                        <Text style={styles.discount}>-{product.discount_percent}% OFF</Text>
-                      )}
-                    </View>
 
-                    {product.is_stock_out ? (
-                      <Text style={styles.stockOut}>Out of Stock</Text>
-                    ) : !product.is_active ? (
-                      <Text style={styles.stockOut}>Currently Unavailable</Text>
-                    ) : (
-                      <Text style={styles.stockText}>In Stock: {product.stock_quantity}</Text>
-                    )}
-                  </View>
-                  <View style={styles.productImageContainer}>
-                    {product.image_url ? (
-                      <Image source={{ uri: getOptimizedImageUrl(product.image_url, 250) }} style={[styles.productImage, !product.is_active && { opacity: 0.5 }]} />
-                    ) : (
-                      <View style={styles.productPlaceholder}>
-                        <Icon name="fast-food-outline" size={30} color="#eee" />
-                      </View>
-                    )}
-                    {!product.is_active && (
-                      <View style={styles.offTag}>
-                         <Text style={styles.offTagText}>OFF</Text>
-                      </View>
-                    )}
-                    {product.is_active && !product.is_stock_out && (
-                      <View style={styles.addButtonContainer}>
-                        {cartItems.find(item => item.id === product.id) ? (
-                          <View style={styles.qtyContainer}>
-                            <TouchableOpacity 
-                              style={styles.qtyBtn} 
-                              onPress={() => updateQuantity(product.id, -1)}
-                            >
-                              <Icon name="remove" size={16} color={Colors.primary} />
-                            </TouchableOpacity>
-                            <Text style={styles.qtyText}>
-                              {cartItems.find(item => item.id === product.id)?.quantity}
-                            </Text>
-                            <TouchableOpacity 
-                              style={styles.qtyBtn} 
-                              onPress={() => updateQuantity(product.id, 1)}
-                            >
-                              <Icon name="add" size={16} color={Colors.primary} />
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <TouchableOpacity 
-                            style={styles.addButton} 
-                            onPress={() => addToCart({ 
-                              ...product, 
-                              store_id: store.id,
-                              handling_fee: store.handling_fee 
-                            })}
-                          >
-                            <Text style={styles.addButtonText}>ADD</Text>
-                            <Icon name="add" size={16} color={Colors.primary} />
-                          </TouchableOpacity>
+                      {/* Variants chips */}
+                      {hasVars && (
+                        <View style={styles.variantChipsContainer}>
+                          {product.variants.map((v: any) => {
+                            const isSelected = activeVar && activeVar.id === v.id;
+                            return (
+                              <TouchableOpacity
+                                key={v.id}
+                                style={[
+                                  styles.variantChip,
+                                  isSelected && styles.variantChipActive
+                                ]}
+                                onPress={() => {
+                                  setSelectedVariants(prev => ({ ...prev, [product.id]: v }));
+                                }}
+                              >
+                                <Text style={[
+                                  styles.variantChipText,
+                                  isSelected && styles.variantChipTextActive
+                                ]}>
+                                  {v.unit}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
 
+                      <View style={styles.priceRow}>
+                        <Text style={[styles.price, !product.is_active && { color: '#999' }]}>
+                          ₹{displayDiscount > 0 
+                            ? (displayPrice * (1 - displayDiscount / 100)).toFixed(0) 
+                            : displayPrice}
+                        </Text>
+                        {displayDiscount > 0 && (
+                          <Text style={styles.originalPrice}>₹{displayPrice}</Text>
+                        )}
+                        {displayDiscount > 0 && product.is_active && (
+                          <Text style={styles.discount}>-{displayDiscount}% OFF</Text>
                         )}
                       </View>
-                    )}
 
+                      {displayStockOut ? (
+                        <Text style={styles.stockOut}>Out of Stock</Text>
+                      ) : !product.is_active ? (
+                        <Text style={styles.stockOut}>Currently Unavailable</Text>
+                      ) : (
+                        <Text style={styles.stockText}>In Stock: {displayStock}</Text>
+                      )}
+                    </View>
+                    <View style={styles.productImageContainer}>
+                      {product.image_url ? (
+                        <Image source={{ uri: getOptimizedImageUrl(product.image_url, 250) }} style={[styles.productImage, !product.is_active && { opacity: 0.5 }]} />
+                      ) : (
+                        <View style={styles.productPlaceholder}>
+                          <Icon name="fast-food-outline" size={30} color="#eee" />
+                        </View>
+                      )}
+                      {!product.is_active && (
+                        <View style={styles.offTag}>
+                           <Text style={styles.offTagText}>OFF</Text>
+                        </View>
+                      )}
+                      {product.is_active && !displayStockOut && (
+                        <View style={styles.addButtonContainer}>
+                          {cartItem ? (
+                            <View style={styles.qtyContainer}>
+                              <TouchableOpacity 
+                                style={styles.qtyBtn} 
+                                onPress={() => updateQuantity(activeId, -1)}
+                              >
+                                <Icon name="remove" size={16} color={Colors.primary} />
+                              </TouchableOpacity>
+                              <Text style={styles.qtyText}>
+                                {cartItem.quantity}
+                              </Text>
+                              <TouchableOpacity 
+                                style={styles.qtyBtn} 
+                                onPress={() => updateQuantity(activeId, 1)}
+                              >
+                                <Icon name="add" size={16} color={Colors.primary} />
+                              </TouchableOpacity>
+                            </View>
+                          ) : (
+                            <TouchableOpacity 
+                              style={styles.addButton} 
+                              onPress={() => addToCart({ 
+                                ...product,
+                                id: activeId,
+                                name: activeVar ? `${product.name} (${activeVar.unit})` : product.name,
+                                price: displayPrice,
+                                discount_percent: displayDiscount,
+                                stock_quantity: displayStock,
+                                is_stock_out: displayStockOut,
+                                unit: displayUnit,
+                                store_id: store.id,
+                                handling_fee: store.handling_fee 
+                              })}
+                            >
+                              <Text style={styles.addButtonText}>ADD</Text>
+                              <Icon name="add" size={16} color={Colors.primary} />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              ))
+                );
+              })
 
             ) : (
               <View style={styles.emptyContainer}>
@@ -530,6 +648,66 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 9,
     fontFamily: Fonts.black,
+  },
+  productUnitText: {
+    fontSize: 12,
+    fontFamily: Fonts.bold,
+    color: Colors.primary,
+    marginBottom: 4,
+  },
+  variantChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+    marginTop: 2,
+  },
+  variantChip: {
+    backgroundColor: '#f5f5f5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  variantChipActive: {
+    backgroundColor: Colors.primary + '15',
+    borderColor: Colors.primary,
+  },
+  variantChipText: {
+    fontSize: 10.5,
+    fontFamily: Fonts.bold,
+    color: '#666',
+  },
+  variantChipTextActive: {
+    color: Colors.primary,
+  },
+  subcategoryScroll: {
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+    gap: 8,
+    marginBottom: 10,
+  },
+  subcatChip: {
+    backgroundColor: '#f5f5f5',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e5e5e5',
+  },
+  subcatChipActive: {
+    backgroundColor: '#000000',
+    borderColor: '#000000',
+  },
+  subcatText: {
+    fontSize: 11,
+    fontFamily: Fonts.semiBold,
+    color: '#666',
+  },
+  subcatTextActive: {
+    color: '#ffffff',
+    fontFamily: Fonts.bold,
   },
 });
 

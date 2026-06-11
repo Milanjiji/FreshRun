@@ -1401,6 +1401,27 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-image-picker (8.2.1):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - react-native-maps (1.27.2):
     - react-native-maps/Maps (= 1.27.2)
   - react-native-maps/Generated (1.27.2):
@@ -2020,6 +2041,7 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - "react-native-geolocation (from `../node_modules/@react-native-community/geolocation`)"
+  - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - react-native-maps (from `../node_modules/react-native-maps`)
   - react-native-mmkv (from `../node_modules/react-native-mmkv`)
   - react-native-razorpay (from `../node_modules/react-native-razorpay`)
@@ -2171,6 +2193,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   react-native-geolocation:
     :path: "../node_modules/@react-native-community/geolocation"
+  react-native-image-picker:
+    :path: "../node_modules/react-native-image-picker"
   react-native-maps:
     :path: "../node_modules/react-native-maps"
   react-native-mmkv:
@@ -2323,6 +2347,7 @@ SPEC CHECKSUMS:
   React-Mapbuffer: 084e824cae9be6ac01a28e225726873cfa5e0f21
   React-microtasksnativemodule: 778923ca79fce5565d9c96fe6766e8e000f82504
   react-native-geolocation: c9e2240786b708dd6c7e1b658242bebdd120e912
+  react-native-image-picker: 91b5eb7c8fc59d57ad1a88213e906b7589dc4d22
   react-native-maps: 3508ca53a5326c0bd1ca703d8618cbbab7538ed6
   react-native-mmkv: af6e47c1703afd83aac2e215feec1a33313d7761
   react-native-razorpay: 7d32da369711d7812cc72373f8e8354d33e29148

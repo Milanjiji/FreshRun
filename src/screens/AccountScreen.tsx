@@ -29,6 +29,7 @@ interface AccountScreenProps {
   onSavedAddressPress?: () => void;
   onOrderPress?: (orderId: string) => void;
   onInfoPress: (type: 'about' | 'privacy' | 'terms' | 'refund' | 'shipping' | 'contact') => void;
+  onHelpPress: (preAttachedOrder?: any) => void;
 }
 
 const AccountScreen: React.FC<AccountScreenProps> = ({ 
@@ -38,7 +39,8 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
   onLogout,
   onSavedAddressPress,
   onOrderPress,
-  onInfoPress
+  onInfoPress,
+  onHelpPress
 }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
@@ -151,13 +153,24 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
           </View>
         </View>
         <View style={styles.orderDivider} />
-        <TouchableOpacity 
-          style={styles.viewMenuButton}
-          onPress={() => onOrderPress && onOrderPress(order.id)}
-        >
-          <Text style={styles.viewMenuText}>VIEW DETAILS</Text>
-          <Icon name="chevron-forward" size={14} color={Colors.primary} />
-        </TouchableOpacity>
+        <View style={styles.orderActionsRow}>
+          <TouchableOpacity 
+            style={styles.viewMenuButton}
+            onPress={() => onOrderPress && onOrderPress(order.id)}
+          >
+            <Text style={styles.viewMenuText}>VIEW DETAILS</Text>
+            <Icon name="chevron-forward" size={14} color={Colors.primary} />
+          </TouchableOpacity>
+          {isDelivered && (
+            <TouchableOpacity 
+              style={styles.raiseIssueButton}
+              onPress={() => onHelpPress && onHelpPress(order)}
+            >
+              <Text style={styles.raiseIssueText}>RAISE AN ISSUE</Text>
+              <Icon name="alert-circle-outline" size={13} color={Colors.error} style={{ marginLeft: 3 }} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     );
   };
@@ -172,7 +185,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
           <Icon name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.helpButton}>
+          <TouchableOpacity style={styles.helpButton} onPress={() => onHelpPress && onHelpPress()}>
             <Text style={styles.helpText}>Help</Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -473,6 +486,26 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bold,
     color: Colors.primary,
     marginRight: 4,
+  },
+  orderActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  raiseIssueButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFEFE5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: '#FFF8F4',
+  },
+  raiseIssueText: {
+    fontSize: 11,
+    fontFamily: Fonts.bold,
+    color: Colors.error,
   },
   emptyOrdersContainer: {
     padding: 40,

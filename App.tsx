@@ -30,6 +30,8 @@ import OrderConfirmingScreen from './src/screens/OrderConfirmingScreen';
 import OrderTrackingScreen from './src/screens/OrderTrackingScreen';
 import OrderDeclinedScreen from './src/screens/OrderDeclinedScreen';
 import InfoScreen, { InfoType } from './src/screens/InfoScreen';
+import HelpScreen from './src/screens/HelpScreen';
+import TicketDetailsScreen from './src/screens/TicketDetailsScreen';
 import LoadingTransition from './src/components/LoadingTransition';
 import { Alertt, CustomAlert } from './src/components/Alertt';
 import CartFooter from './src/components/CartFooter';
@@ -179,6 +181,9 @@ function App() {
   const [showOrderTracking, setShowOrderTracking] = useState(false);
   const [showOrderDeclined, setShowOrderDeclined] = useState(false);
   const [showInfo, setShowInfo] = useState<InfoType | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const [preAttachedHelpOrder, setPreAttachedHelpOrder] = useState<any>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | number | null>(null);
   const [isAddingNewAddress, setIsAddingNewAddress] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null);
@@ -189,6 +194,7 @@ function App() {
   const [checkoutDeliveryTip, setCheckoutDeliveryTip] = useState<number>(0);
   const [checkoutLateNightFee, setCheckoutLateNightFee] = useState<number>(0);
   const [checkoutRainyFee, setCheckoutRainyFee] = useState<number>(0);
+  const [checkoutExtraStoreCharge, setCheckoutExtraStoreCharge] = useState<number>(0);
   const [checkoutIsSelfPickup, setCheckoutIsSelfPickup] = useState<boolean>(false);
   const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<'cod' | 'online'>('cod');
   const [appSettings, setAppSettings] = useState<any>(null);
@@ -250,9 +256,8 @@ function App() {
       };
     }
   }, [userToken, userData?.id]);
-
   // Cart logic
-  const addToCart = (product: any) => {
+  const proceedAddToCart = (product: any) => {
     setCartItems(prev => {
       const existing = prev.find(item => item.id === product.id);
       let newCart;
@@ -268,6 +273,22 @@ function App() {
     });
   };
 
+  const addToCart = (product: any) => {
+    const isDifferentStore = cartItems.length > 0 && cartItems.some(item => String(item.store_id || item.storeId) !== String(product.store_id || product.storeId));
+    if (isDifferentStore) {
+      const charge = appSettings?.extra_store_charge || 20;
+      Alertt.alert(
+        'Different Store',
+        `Adding items from multiple stores will add an extra store charge of ₹${charge} to your delivery fee.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Add Item', onPress: () => proceedAddToCart(product) }
+        ]
+      );
+    } else {
+      proceedAddToCart(product);
+    }
+  };
   const updateQuantity = (id: string, delta: number) => {
     setCartItems(prev => {
       const newCart = prev.map(item => {
@@ -668,6 +689,37 @@ function App() {
       );
     }
 
+    if (selectedTicketId) {
+      return (
+        <TicketDetailsScreen 
+          ticketId={selectedTicketId}
+          userToken={userToken!}
+          onBack={() => {
+            setSelectedTicketId(null);
+            setShowHelp(true);
+          }}
+        />
+      );
+    }
+
+    if (showHelp) {
+      return (
+        <HelpScreen 
+          userToken={userToken!}
+          preAttachedOrder={preAttachedHelpOrder}
+          onBack={() => {
+            setShowHelp(false);
+            setPreAttachedHelpOrder(null);
+            setShowAccount(true);
+          }}
+          onViewTicketDetails={(ticketId) => {
+            setShowHelp(false);
+            setSelectedTicketId(ticketId);
+          }}
+        />
+      );
+    }
+
     if (showAccount) {
       return (
         <AccountScreen 
@@ -686,6 +738,11 @@ function App() {
           }}
           onInfoPress={(type) => {
              setShowInfo(type);
+          }}
+          onHelpPress={(preAttachedOrder) => {
+            setPreAttachedHelpOrder(preAttachedOrder || null);
+            setShowAccount(false);
+            setShowHelp(true);
           }}
         />
       );
@@ -752,6 +809,7 @@ function App() {
           deliveryTip={checkoutDeliveryTip}
           rainyFee={checkoutRainyFee}
           lateNightFee={checkoutLateNightFee}
+          extraStoreCharge={checkoutExtraStoreCharge}
           userData={userData}
           locationData={locationData}
           userToken={userToken}
@@ -810,12 +868,13 @@ function App() {
           clearCart={clearCart}
           locationAddress={userData?.address?.line1}
           socket={socketRef.current}
-          onProceedToCheckout={(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee) => {
+          onProceedToCheckout={(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee, extraStoreCharge) => {
             setCheckoutTotalAmount(total);
             setCheckoutDeliveryFee(deliveryFee);
             setCheckoutDeliveryTip(deliveryTip);
             setCheckoutRainyFee(rainyFee);
             setCheckoutLateNightFee(lateNightFee);
+            setCheckoutExtraStoreCharge(extraStoreCharge || 0);
             setCheckoutIsSelfPickup(!!isSelfPickup);
             setShowPayment(true);
           }}
