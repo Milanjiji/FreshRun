@@ -60,16 +60,17 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
       try {
         const storeId = String(cartItems[0].store_id || cartItems[0].storeId);
         
+        const isOneRupeeOrder = totalAmount === 1;
         const payload = {
           store_id: storeId,
           items: cartItems,
           total_amount: totalAmount,
-          subtotal: totalAmount - deliveryFee - deliveryTip - rainyFee - lateNightFee - extraStoreCharge,
-          delivery_fee: deliveryFee,
-          delivery_tip: deliveryTip,
-          rainy_surge_fee: rainyFee,
-          late_night_fee: lateNightFee,
-          extra_store_charge: extraStoreCharge,
+          subtotal: isOneRupeeOrder ? totalAmount : totalAmount - deliveryFee - deliveryTip - rainyFee - lateNightFee - extraStoreCharge,
+          delivery_fee: isOneRupeeOrder ? 0 : deliveryFee,
+          delivery_tip: isOneRupeeOrder ? 0 : deliveryTip,
+          rainy_surge_fee: isOneRupeeOrder ? 0 : rainyFee,
+          late_night_fee: isOneRupeeOrder ? 0 : lateNightFee,
+          extra_store_charge: isOneRupeeOrder ? 0 : extraStoreCharge,
           is_pickup: isSelfPickup,
           payment_mode: paymentMode,
           delivery_address: {
@@ -130,6 +131,7 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
               JSON.stringify(options, null, 2)
             );
             const rzpSuccessResponse = await RazorpayCheckout.open(options);
+            console.log('RZP_SUCCESS_RESPONSE', rzpSuccessResponse);
             if (!isMounted) return;
             setStatusText('Verifying payment...');
             
@@ -147,6 +149,7 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
             });
 
             const verifyData = await verifyRes.json();
+            console.log('VERIFY_RESPONSE', verifyData);
             if (!isMounted) return;
             if (!verifyData.success || !verifyData.order) {
               throw new Error(verifyData.message || 'Payment verification failed');
