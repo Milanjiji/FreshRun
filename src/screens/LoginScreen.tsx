@@ -247,7 +247,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
 
           <View style={styles.imageContainer}>
             <Image 
-              source={require('../assets/login_page.png')} 
+              source={require('../assets/logo.png')} 
               style={styles.loginImage}
               resizeMode="contain"
             />
