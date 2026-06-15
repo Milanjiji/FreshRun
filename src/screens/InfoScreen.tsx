@@ -157,14 +157,14 @@ const InfoScreen: React.FC<InfoScreenProps> = ({ type, onBack }) => {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.banner}>
-           <Text style={styles.bannerTitle}>{data.title}</Text>
+           <Text style={type === 'about' || type === 'privacy' ? styles.bannerTitleSmall : styles.bannerTitle}>{data.title}</Text>
            <Text style={styles.bannerSubtitle}>Last updated: June 2026</Text>
         </View>
 
         {data.sections.map((section, index) => (
           <View key={index} style={styles.section}>
-            <Text style={styles.heading}>{section.heading}</Text>
-            <Text style={styles.content}>{section.content}</Text>
+            <Text style={type === 'about' || type === 'privacy' ? styles.headingSmall : styles.heading}>{section.heading}</Text>
+            <Text style={type === 'about' || type === 'privacy' ? styles.contentSmall : styles.content}>{section.content}</Text>
           </View>
         ))}
 
@@ -227,6 +227,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#1a1a1a',
   },
+  bannerTitleSmall: {
+    fontSize: 22,
+    fontFamily: Fonts.black,
+    fontWeight: '900',
+    color: '#1a1a1a',
+  },
   bannerSubtitle: {
     fontSize: 12,
     fontFamily: Fonts.medium,
@@ -245,11 +251,25 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  headingSmall: {
+    fontSize: 13,
+    fontFamily: Fonts.bold,
+    color: Colors.primary,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
   content: {
     fontSize: 14,
     fontFamily: Fonts.regular,
     color: '#444',
     lineHeight: 22,
+  },
+  contentSmall: {
+    fontSize: 11,
+    fontFamily: Fonts.regular,
+    color: '#444',
+    lineHeight: 18,
   },
   footer: {
     marginTop: 20,

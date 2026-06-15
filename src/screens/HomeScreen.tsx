@@ -128,7 +128,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   useEffect(() => {
     console.log('[HomeScreen] Location changed, triggering fresh fetch...');
     fetchHomeData();
-  }, [selectedCategory, isVeg, locationData?.latitude, locationData?.longitude, locationData?.isFromAddress]);
+  }, [selectedCategory, isVeg, locationData?.latitude, locationData?.longitude]);
 
   const fetchHomeData = async () => {
     setLoading(true); // Always show loading when fetching fresh data

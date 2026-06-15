@@ -62,14 +62,24 @@ appCheck().initializeAppCheck({
 });
 // App Check is separate from Firebase Auth phone-number app verification.
 
-// Intercept global fetch to automatically inject a fresh Firebase ID token
+// Intercept global fetch to automatically inject a fresh Firebase ID token.
+// We use getIdToken(false) which returns the cached token if still valid, or
+// automatically refreshes it if it is expired — without forcing a new token
+// every call (which would re-trigger onIdTokenChanged and cascade re-renders).
 const originalFetch = global.fetch;
 global.fetch = async (input, init) => {
   if (typeof input === 'string' && input.startsWith(API_BASE_URL)) {
     try {
       const currentUser = auth().currentUser;
       if (currentUser) {
-        const token = await currentUser.getIdToken(false);
+        let token: string;
+        try {
+          // false = use cached token; Firebase auto-refreshes when near expiry.
+          token = await currentUser.getIdToken(false);
+        } catch (refreshErr: any) {
+          console.warn('[Fetch Interceptor] getIdToken failed:', refreshErr?.message);
+          token = '';
+        }
         if (token) {
           init = init || {};
           let headers = init.headers || {};
@@ -102,31 +112,68 @@ function App() {
 
   const [userToken, setUserToken] = useState<string | null>(null);
   const [userData, setUserData] = useState<any>(null);
+  // Start as true – we flip it to false only after Firebase resolves the auth
+  // state (inside onIdTokenChanged). This prevents the login screen from
+  // flashing while Firebase is restoring an existing session on app open.
   const [loading, setLoading] = useState(true);
+  // True while we are resolving address/profile state immediately after login.
+  const [postLoginLoading, setPostLoginLoading] = useState(false);
+  const authResolved = React.useRef(false);
 
-  // Update locationData whenever userData changes (e.g. address switch)
+  // Debounced versions of userToken and userData.id.
+  // Firebase fires onIdTokenChanged TWICE on cold-start (once from local cache,
+  // once after server validation). Without debouncing, every effect that depends
+  // on [userToken, userData?.id] runs twice: FCM setup, socket, fetchActiveOrder.
+  // We debounce by 350 ms – that's long enough for both fires to settle, but
+  // short enough that the user never notices.
+  const [stableToken, setStableToken] = useState<string | null>(null);
+  const [stableUserId, setStableUserId] = useState<string | null>(null);
+  const debounceTokenTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep stableToken / stableUserId in sync with userToken / userData, debounced.
   useEffect(() => {
-    console.log('[DEBUG-App] userData changed. currentAddressId:', userData?.currentAddressId);
+    if (debounceTokenTimer.current) clearTimeout(debounceTokenTimer.current);
+    debounceTokenTimer.current = setTimeout(() => {
+      setStableToken(userToken);
+      setStableUserId(userData?.id ?? null);
+    }, 350);
+    return () => {
+      if (debounceTokenTimer.current) clearTimeout(debounceTokenTimer.current);
+    };
+  }, [userToken, userData?.id]);
+
+  // Update locationData whenever userData changes (e.g. address switch).
+  // Uses a functional setState so it only triggers a re-render (and therefore
+  // a HomeScreen re-fetch) when the COORDINATES actually change — not on every
+  // userData reference change or when only metadata like isFromAddress differs.
+  useEffect(() => {
     if (userData?.currentAddressLatitude && userData?.currentAddressLongitude) {
-      const newLoc = {
-        latitude: parseFloat(userData.currentAddressLatitude),
-        longitude: parseFloat(userData.currentAddressLongitude),
-        isFromAddress: true,
-        addressId: userData.currentAddressId
-      };
-      console.log('[DEBUG-App] SETTING LOCATION FROM ADDRESS:', {
-        name: userData.addressLine,
-        lat: newLoc.latitude,
-        lng: newLoc.longitude
+      const newLat = parseFloat(userData.currentAddressLatitude);
+      const newLng = parseFloat(userData.currentAddressLongitude);
+      const newAddressId = userData.currentAddressId;
+      setLocationData(prev => {
+        if (prev?.latitude === newLat && prev?.longitude === newLng) {
+          // Same coordinates — return existing object reference so React
+          // sees no change and HomeScreen does not re-fetch.
+          return prev;
+        }
+        console.log('[App] Address-based location updated:', { lat: newLat, lng: newLng });
+        return { latitude: newLat, longitude: newLng, isFromAddress: true, addressId: newAddressId };
       });
-      setLocationData(newLoc);
-    } else {
-      console.log('[DEBUG-App] userData has no address coordinates. Falling back to GPS or previous state.');
     }
   }, [userData?.id, userData?.currentAddressId, userData?.currentAddressLatitude, userData?.currentAddressLongitude]);
 
   // Firebase Auth & Token Refresh Logic
+  // IMPORTANT: setLoading(false) is called here – AFTER Firebase first resolves
+  // the auth state – so we never briefly show the login screen on app open.
   useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      if (!authResolved.current) {
+        authResolved.current = true;
+        setLoading(false);
+      }
+    }, 5000);
+
     const unsubscribe = auth().onIdTokenChanged(async (user) => {
       console.log('[Auth] ID Token changed or user state changed');
       if (user) {
@@ -144,13 +191,6 @@ function App() {
             setUserData(currentData);
             if (currentData.currentAddressId || currentData.addressLine) {
               setHasLocation(true);
-              // Populate locationData from user's saved address if available
-              if (currentData.currentAddressLatitude && currentData.currentAddressLongitude) {
-                setLocationData({
-                  latitude: parseFloat(currentData.currentAddressLatitude),
-                  longitude: parseFloat(currentData.currentAddressLongitude)
-                });
-              }
             }
           }
         } catch (e) {
@@ -164,9 +204,19 @@ function App() {
         storage.removeItem('userToken');
         storage.removeItem('userData');
       }
+
+      // Hide the splash/loading screen only after the first auth resolution.
+      // This is the correct place to do it – not in checkAppState().
+      if (!authResolved.current) {
+        authResolved.current = true;
+        setLoading(false);
+      }
     });
 
-    return unsubscribe;
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribe();
+    };
   }, []);
 
   const [hasLocation, setHasLocation] = useState(false);
@@ -214,8 +264,10 @@ function App() {
   }, []);
 
   // FCM Setup
+  // Uses stableToken/stableUserId (debounced) so this only runs once even when
+  // Firebase fires onIdTokenChanged twice in quick succession on app open.
   useEffect(() => {
-    if (userToken && userData?.id) {
+    if (stableToken && stableUserId) {
       const initFCM = async () => {
         try {
           const hasPermission = await requestNotificationPermission();
@@ -223,11 +275,11 @@ function App() {
             await createNotificationChannels();
             const fcmToken = await messaging().getToken();
             console.log('[FCM] Token:', fcmToken);
-            await registerFCMToken(userToken, fcmToken);
+            await registerFCMToken(stableToken, fcmToken);
             
             // Listen for token refresh
             const unsubscribeTokenRefresh = messaging().onTokenRefresh(async newToken => {
-              await registerFCMToken(userToken, newToken);
+              await registerFCMToken(stableToken, newToken);
             });
 
             console.log('[FCM] Initializing listeners...');
@@ -255,7 +307,7 @@ function App() {
         if (typeof cleanup === 'function') (cleanup as any)();
       };
     }
-  }, [userToken, userData?.id]);
+  }, [stableToken, stableUserId]);
   // Cart logic
   const proceedAddToCart = (product: any) => {
     setCartItems(prev => {
@@ -319,7 +371,10 @@ function App() {
 
   const lastItemImage = cartItems.length > 0 ? cartItems[cartItems.length - 1].image_url : undefined;
 
-  // Check login and location state on start
+  // Check login and location state on start.
+  // NOTE: We intentionally do NOT call setLoading(false) here anymore.
+  // Loading is controlled by onIdTokenChanged so there's no race condition
+  // where the login screen flashes before Firebase restores the session.
   useEffect(() => {
     const checkAppState = async () => {
       try {
@@ -362,9 +417,8 @@ function App() {
         }
       } catch (e) {
         console.error('Failed to load app state', e);
-      } finally {
-        setLoading(false);
       }
+      // Do NOT call setLoading(false) here – onIdTokenChanged handles it.
     };
 
     checkAppState();
@@ -372,9 +426,10 @@ function App() {
 
   const socketRef = useRef<any>(null);
 
-  // Socket.io initialization
+  // Socket.io initialization.
+  // Uses stableToken/stableUserId (debounced) to prevent double-connect on app open.
   useEffect(() => {
-    if (userToken && userData?.id) {
+    if (stableToken && stableUserId) {
       // Connect to socket server
       socketRef.current = io(API_BASE_URL);
 
@@ -416,8 +471,8 @@ function App() {
         if (updatedOrder?.status === 'delivered' || updatedOrder?.is_completed) {
           setOrderId(null);
           setActiveOrderTimestamp(null);
-          storage.removeItem(`activeOrderId_${userData.id}`);
-          storage.removeItem(`activeOrderTimestamp_${userData.id}`);
+          storage.removeItem(`activeOrderId_${stableUserId}`);
+          storage.removeItem(`activeOrderTimestamp_${stableUserId}`);
           setShowOrderTracking(false);
           setShowOrderDeclined(false);
           return;
@@ -429,8 +484,8 @@ function App() {
           setOrderId(updatedOrder.id);
           const ts = new Date(updatedOrder.created_at).getTime();
           setActiveOrderTimestamp(ts);
-          storage.setItem(`activeOrderId_${userData.id}`, updatedOrder.id);
-          storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
+          storage.setItem(`activeOrderId_${stableUserId}`, updatedOrder.id);
+          storage.setItem(`activeOrderTimestamp_${stableUserId}`, ts);
           return;
         }
 
@@ -440,8 +495,8 @@ function App() {
         setActiveOrderTimestamp(ts);
         
         // Update local storage
-        storage.setItem(`activeOrderId_${userData.id}`, updatedOrder.id);
-        storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
+        storage.setItem(`activeOrderId_${stableUserId}`, updatedOrder.id);
+        storage.setItem(`activeOrderTimestamp_${stableUserId}`, ts);
       });
 
       socketRef.current.on('settings_updated', (newSettings: any) => {
@@ -460,7 +515,7 @@ function App() {
         }
       };
     }
-  }, [userToken, userData?.id, orderId]);
+  }, [stableToken, stableUserId, orderId]);
 
   // Join order room when orderId changes
   useEffect(() => {
@@ -469,48 +524,76 @@ function App() {
     }
   }, [orderId]);
 
-  // Sync active order with the backend on mount/login
+  // Sync active order with the backend on mount/login.
+  // Uses stableToken/stableUserId (debounced) to prevent duplicate API calls
+  // when Firebase fires onIdTokenChanged twice on app open.
   useEffect(() => {
-    if (userToken && userData?.id) {
+    if (stableToken && stableUserId) {
       const fetchActiveOrder = async () => {
-        // 1. Load from cache first
-        const cachedOrder = storage.getObject<any>(`activeOrderObject_${userData.id}`);
+        // Track which declined order the user has already dismissed so we never
+        // re-show it (from cache OR from the API) until a brand-new one arrives.
+        const dismissedOrderId = storage.getString(`dismissedDeclinedOrderId_${stableUserId}`);
+
+        // 1. Load from cache first for instant UI, but skip declined orders
+        //    that were already dismissed by the user.
+        const cachedOrder = storage.getObject<any>(`activeOrderObject_${stableUserId}`);
         if (cachedOrder) {
-          console.log('[OrderSync] Loading order from cache');
-          setActiveOrder(cachedOrder);
-          setOrderId(cachedOrder.id);
-          const ts = new Date(cachedOrder.created_at).getTime();
-          setActiveOrderTimestamp(ts);
-          if (cachedOrder.status === 'declined') setShowOrderDeclined(true);
+          const isAlreadyDismissed = cachedOrder.status === 'declined' &&
+            dismissedOrderId === String(cachedOrder.id);
+
+          if (!isAlreadyDismissed) {
+            console.log('[OrderSync] Loading order from cache');
+            setActiveOrder(cachedOrder);
+            setOrderId(cachedOrder.id);
+            const ts = new Date(cachedOrder.created_at).getTime();
+            setActiveOrderTimestamp(ts);
+            if (cachedOrder.status === 'declined') setShowOrderDeclined(true);
+          } else {
+            // Cached order was already dismissed — clear it so it never loads again.
+            console.log('[OrderSync] Skipping already-dismissed declined order from cache.');
+            storage.removeItem(`activeOrderObject_${stableUserId}`);
+          }
         }
 
         try {
           const res = await fetch(`${API_BASE_URL}/orders/active`, {
-            headers: { Authorization: `Bearer ${userToken}` }
+            headers: { Authorization: `Bearer ${stableToken}` }
           });
           const data = await res.json();
           if (data.success && data.order) {
             setActiveOrder(data.order);
             // Save full object to cache
-            storage.setItem(`activeOrderObject_${userData.id}`, data.order);
+            storage.setItem(`activeOrderObject_${stableUserId}`, data.order);
 
             if (data.order?.status === 'delivered' || data.order?.is_completed) {
               setOrderId(null);
               setActiveOrderTimestamp(null);
-              storage.removeItem(`activeOrderId_${userData.id}`);
-              storage.removeItem(`activeOrderTimestamp_${userData.id}`);
-              storage.removeItem(`activeOrderObject_${userData.id}`);
+              storage.removeItem(`activeOrderId_${stableUserId}`);
+              storage.removeItem(`activeOrderTimestamp_${stableUserId}`);
+              storage.removeItem(`activeOrderObject_${stableUserId}`);
               setShowOrderDeclined(false);
               return;
             }
 
             if (data.order?.status === 'declined') {
-              setOrderId(data.order.id);
-              const ts = new Date(data.order.created_at).getTime();
-              setActiveOrderTimestamp(ts);
-              setShowOrderDeclined(true);
-              storage.setItem(`activeOrderId_${userData.id}`, data.order.id);
-              storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
+              // Only show the declined screen if this is a NEW declined order
+              // (one the user hasn't already dismissed).
+              const isAlreadyDismissed = dismissedOrderId === String(data.order.id);
+              if (!isAlreadyDismissed) {
+                setOrderId(data.order.id);
+                const ts = new Date(data.order.created_at).getTime();
+                setActiveOrderTimestamp(ts);
+                setShowOrderDeclined(true);
+                storage.setItem(`activeOrderId_${stableUserId}`, data.order.id);
+                storage.setItem(`activeOrderTimestamp_${stableUserId}`, ts);
+              } else {
+                // Already dismissed — treat as no active order.
+                console.log('[OrderSync] API returned already-dismissed declined order, ignoring.');
+                setActiveOrder(null);
+                setOrderId(null);
+                setActiveOrderTimestamp(null);
+                storage.removeItem(`activeOrderObject_${stableUserId}`);
+              }
               return;
             }
 
@@ -518,16 +601,16 @@ function App() {
             const ts = new Date(data.order.created_at).getTime();
             setActiveOrderTimestamp(ts);
             // Backup locally
-            storage.setItem(`activeOrderId_${userData.id}`, data.order.id);
-            storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
+            storage.setItem(`activeOrderId_${stableUserId}`, data.order.id);
+            storage.setItem(`activeOrderTimestamp_${stableUserId}`, ts);
           } else if (data.success && !data.order) {
             // Order is completed or no active order exists
             setActiveOrder(null);
             setOrderId(null);
             setActiveOrderTimestamp(null);
-            storage.removeItem(`activeOrderId_${userData.id}`);
-            storage.removeItem(`activeOrderTimestamp_${userData.id}`);
-            storage.removeItem(`activeOrderObject_${userData.id}`);
+            storage.removeItem(`activeOrderId_${stableUserId}`);
+            storage.removeItem(`activeOrderTimestamp_${stableUserId}`);
+            storage.removeItem(`activeOrderObject_${stableUserId}`);
           }
         } catch (e) {
           console.error('Error fetching active order:', e);
@@ -536,38 +619,62 @@ function App() {
 
       fetchActiveOrder();
     }
-  }, [userToken, userData?.id]);
+  }, [stableToken, stableUserId]);
 
   const handleLoginSuccess = async (token: string, user: any) => {
-    setUserToken(token);
-    setUserData(user);
-    
-    // Check for existing addresses to show selection screen
+    // Show the loading screen while we resolve everything – prevents flickering
+    // to the wrong screen (e.g. LocationScreen) before we know the user's state.
+    setPostLoginLoading(true);
+
     try {
-      const res = await fetch(`${API_BASE_URL}/user/addresses`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success && data.addresses && data.addresses.length > 0) {
-        setIsSelectingLocation(true);
-      }
-    } catch (e) {
-      console.error('Error checking addresses after login:', e);
-    }
-    
-    if (user && user.id) {
-      const savedOrderId = storage.getString(`activeOrderId_${user.id}`);
-      const savedOrderTs = storage.getNumber(`activeOrderTimestamp_${user.id}`);
-      if (savedOrderId && savedOrderTs) {
-        const elapsed = Math.floor((Date.now() - savedOrderTs) / 1000);
-        if (elapsed < 1200) {
-          setOrderId(savedOrderId);
-          setActiveOrderTimestamp(savedOrderTs);
-        } else {
-          storage.removeItem(`activeOrderId_${user.id}`);
-          storage.removeItem(`activeOrderTimestamp_${user.id}`);
+      setUserToken(token);
+      setUserData(user);
+
+      // --- 1. Resolve address / location state ---
+      // The login response already includes currentAddressId and coordinates.
+      // If the user has a saved address we can skip the addresses API call entirely.
+      if (user?.currentAddressId) {
+        // User already has a selected address.
+        // Do NOT set locationData here — the address watch effect above will
+        // set it correctly when setUserData(user) is processed below, avoiding
+        // a duplicate locationData update that would cause HomeScreen to fetch twice.
+        setHasLocation(true);
+        setIsSelectingLocation(false);
+      } else {
+        // No current address — fetch the full address list to decide what to show.
+        try {
+          const res = await fetch(`${API_BASE_URL}/user/addresses`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await res.json();
+          if (data.success && data.addresses && data.addresses.length > 0) {
+            // Has saved addresses but none selected → let them pick one.
+            setIsSelectingLocation(true);
+          }
+          // else: no addresses at all → hasLocation stays false → LocationScreen shown
+        } catch (e) {
+          console.error('[Login] Error fetching addresses:', e);
         }
       }
+
+      // --- 2. Restore any in-progress active order ---
+      if (user?.id) {
+        const savedOrderId = storage.getString(`activeOrderId_${user.id}`);
+        const savedOrderTs = storage.getNumber(`activeOrderTimestamp_${user.id}`);
+        if (savedOrderId && savedOrderTs) {
+          const elapsed = Math.floor((Date.now() - savedOrderTs) / 1000);
+          if (elapsed < 1200) {
+            setOrderId(savedOrderId);
+            setActiveOrderTimestamp(savedOrderTs);
+          } else {
+            storage.removeItem(`activeOrderId_${user.id}`);
+            storage.removeItem(`activeOrderTimestamp_${user.id}`);
+          }
+        }
+      }
+    } finally {
+      // Always hide the post-login loader so the app doesn't get stuck.
+      setPostLoginLoading(false);
     }
   };
 
@@ -752,17 +859,28 @@ function App() {
       return (
         <OrderDeclinedScreen 
           onBack={async () => {
-            setShowOrderDeclined(false);
-            // Clear local state immediately to ensure smooth UX
             const currentOrderId = orderId;
+
+            // 1. Mark dismissed BEFORE clearing state so any re-render triggered
+            //    by the state clears below cannot race and re-show the screen.
+            if (currentOrderId && userData?.id) {
+              storage.setItem(`dismissedDeclinedOrderId_${userData.id}`, String(currentOrderId));
+            }
+
+            // 2. Clear all local state & storage for this order.
+            setShowOrderDeclined(false);
             setActiveOrder(null);
             setOrderId(null);
             setActiveOrderTimestamp(null);
             if (userData) {
               storage.removeItem(`activeOrderId_${userData.id}`);
               storage.removeItem(`activeOrderTimestamp_${userData.id}`);
+              storage.removeItem(`activeOrderObject_${userData.id}`);
             }
 
+            // 3. Best-effort PATCH to mark is_completed on the backend so the
+            //    next /orders/active call returns nothing. Even if this fails,
+            //    the dismissedDeclinedOrderId guard above prevents re-showing.
             if (currentOrderId && userToken) {
               try {
                 console.log('[App] Sending PATCH to mark declined order completed:', currentOrderId);
@@ -940,7 +1058,9 @@ function App() {
   return (
     <SafeAreaProvider>
       <View style={styles.container}>
-        {loading ? (
+        {(loading || postLoginLoading) ? (
+          // Show splash during initial Firebase auth resolution OR
+          // while we resolve the user's address/profile state right after login.
           <LoadingTransition />
         ) : (
           <>

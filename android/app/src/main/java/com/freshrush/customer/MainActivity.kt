@@ -1,4 +1,4 @@
-package com.freshrun
+package com.freshrush.customer
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

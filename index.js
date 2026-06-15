@@ -29,8 +29,8 @@ messaging().setBackgroundMessageHandler(async remoteMessage => {
 import CodePush from '@revopush/react-native-code-push';
 
 const CodePushApp = CodePush({
-  checkFrequency: CodePush.CheckFrequency.ON_APP_RESUME,
-  installMode: CodePush.InstallMode.IMMEDIATE,
+  checkFrequency: CodePush.CheckFrequency.ON_APP_START,
+  installMode: CodePush.InstallMode.ON_NEXT_RESTART,
 })(App);
 
 AppRegistry.registerComponent(appName, () => CodePushApp);
