@@ -235,10 +235,27 @@ function App() {
   const [preAttachedHelpOrder, setPreAttachedHelpOrder] = useState<any>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | number | null>(null);
   const [isAddingNewAddress, setIsAddingNewAddress] = useState(false);
-  const [orderId, setOrderId] = useState<string | null>(null);
+  // Multi-order support: all non-completed active orders for this user
+  const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null);
-  const [activeOrder, setActiveOrder] = useState<any>(null);
-  const [activeOrderTimestamp, setActiveOrderTimestamp] = useState<number | null>(null);
+  // Keep a single "primary" declined order for the OrderDeclinedScreen flow
+  const [declinedOrderId, setDeclinedOrderId] = useState<string | null>(null);
+
+  // Helper: upsert an order into activeOrders (add if new, update if existing)
+  const upsertActiveOrder = (order: any) => {
+    setActiveOrders(prev => {
+      const idx = prev.findIndex(o => String(o.id) === String(order.id));
+      if (idx === -1) return [order, ...prev];
+      const updated = [...prev];
+      updated[idx] = order;
+      return updated;
+    });
+  };
+
+  // Helper: remove an order from activeOrders by id
+  const removeActiveOrder = (orderId: string | number) => {
+    setActiveOrders(prev => prev.filter(o => String(o.id) !== String(orderId)));
+  };
   const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<number>(0);
   const [checkoutDeliveryFee, setCheckoutDeliveryFee] = useState<number>(0);
   const [checkoutDeliveryTip, setCheckoutDeliveryTip] = useState<number>(0);
@@ -286,8 +303,7 @@ function App() {
             const cleanupListeners = setupFCMListeners((data) => {
               console.log('[FCM] Callback triggered with data:', data);
               if (data?.orderId) {
-                setOrderId(data.orderId);
-                setSelectedTrackingOrderId(null);
+                setSelectedTrackingOrderId(data.orderId);
                 setShowOrderTracking(true);
               }
             });
@@ -435,22 +451,20 @@ function App() {
 
       socketRef.current.on('connect', () => {
         console.log('[Socket] Connected to server');
-        if (orderId) {
-          socketRef.current.emit('join_room', `order_${orderId}`);
-        }
-
-        // Join rooms for all stores currently in the cart to get product updates
-        const storeIds = [...new Set(cartItems.map(item => String(item.store_id || (item as any).storeId)).filter(id => id && id !== 'undefined'))];
-        storeIds.forEach(id => {
-          socketRef.current.emit('join_room', `store_${id}`);
+        // Join rooms for all active orders
+        setActiveOrders(current => {
+          current.forEach(o => socketRef.current?.emit('join_room', `order_${o.id}`));
+          return current;
         });
+        // Join rooms for all stores in cart
+        const storeIds = [...new Set(cartItems.map(item => String(item.store_id || (item as any).storeId)).filter(id => id && id !== 'undefined'))];
+        storeIds.forEach(id => socketRef.current?.emit('join_room', `store_${id}`));
       });
 
       socketRef.current.on('product_updated', (updatedProduct: any) => {
-        console.log('[Socket] Product updated:', updatedProduct.id, 'Active:', updatedProduct.is_active);
-        // We trigger a cart items update to force CartScreen to re-check serviceability
+        console.log('[Socket] Product updated:', updatedProduct.id);
         setCartItems(prev => {
-          const updatedCart = prev.map(item => 
+          const updatedCart = prev.map(item =>
             item.id === updatedProduct.id ? { ...item, ...updatedProduct } : item
           );
           storage.setItem('cartItems', updatedCart);
@@ -458,55 +472,45 @@ function App() {
         });
       });
 
-      socketRef.current.on('store_updated', (updatedStore: any) => {
-        console.log('[Socket] Store updated:', updatedStore.id, 'Active:', updatedStore.is_active);
-        // Force serviceability re-check by updating cartItems (even if just a reference change)
+      socketRef.current.on('store_updated', () => {
         setCartItems(prev => [...prev]);
       });
 
       socketRef.current.on('order_status_changed', (updatedOrder: any) => {
-        console.log('[Socket] Order status update:', updatedOrder.status);
-        setActiveOrder(updatedOrder);
+        console.log('[Socket] Order status update for #' + updatedOrder.id + ':', updatedOrder.status);
 
         if (updatedOrder?.status === 'delivered' || updatedOrder?.is_completed) {
-          setOrderId(null);
-          setActiveOrderTimestamp(null);
-          storage.removeItem(`activeOrderId_${stableUserId}`);
-          storage.removeItem(`activeOrderTimestamp_${stableUserId}`);
-          setShowOrderTracking(false);
+          removeActiveOrder(updatedOrder.id);
+          storage.removeItem(`activeOrderObject_${stableUserId}_${updatedOrder.id}`);
+          // If we were tracking this specific order, go back to home
+          setSelectedTrackingOrderId(prev => {
+            if (String(prev) === String(updatedOrder.id)) {
+              setShowOrderTracking(false);
+              return null;
+            }
+            return prev;
+          });
           setShowOrderDeclined(false);
           return;
         }
 
         if (updatedOrder?.status === 'declined') {
+          upsertActiveOrder(updatedOrder);
+          setDeclinedOrderId(String(updatedOrder.id));
           setShowOrderTracking(false);
           setShowOrderDeclined(true);
-          setOrderId(updatedOrder.id);
-          const ts = new Date(updatedOrder.created_at).getTime();
-          setActiveOrderTimestamp(ts);
-          storage.setItem(`activeOrderId_${stableUserId}`, updatedOrder.id);
-          storage.setItem(`activeOrderTimestamp_${stableUserId}`, ts);
           return;
         }
 
-        setOrderId(updatedOrder.id);
-        
-        const ts = new Date(updatedOrder.created_at).getTime();
-        setActiveOrderTimestamp(ts);
-        
-        // Update local storage
-        storage.setItem(`activeOrderId_${stableUserId}`, updatedOrder.id);
-        storage.setItem(`activeOrderTimestamp_${stableUserId}`, ts);
+        upsertActiveOrder(updatedOrder);
+        storage.setItem(`activeOrderObject_${stableUserId}_${updatedOrder.id}`, updatedOrder);
       });
 
       socketRef.current.on('settings_updated', (newSettings: any) => {
-        console.log('[Socket] Global settings updated');
         setAppSettings(newSettings);
       });
 
-      socketRef.current.on('disconnect', () => {
-        console.log('[Socket] Disconnected');
-      });
+      socketRef.current.on('disconnect', () => console.log('[Socket] Disconnected'));
 
       return () => {
         if (socketRef.current) {
@@ -515,109 +519,53 @@ function App() {
         }
       };
     }
-  }, [stableToken, stableUserId, orderId]);
+  }, [stableToken, stableUserId]);
 
-  // Join order room when orderId changes
+  // Join socket rooms for any new active orders
   useEffect(() => {
-    if (socketRef.current && orderId) {
-      socketRef.current.emit('join_room', `order_${orderId}`);
+    if (socketRef.current) {
+      activeOrders.forEach(o => socketRef.current?.emit('join_room', `order_${o.id}`));
     }
-  }, [orderId]);
+  }, [activeOrders.length]);
 
-  // Sync active order with the backend on mount/login.
-  // Uses stableToken/stableUserId (debounced) to prevent duplicate API calls
-  // when Firebase fires onIdTokenChanged twice on app open.
+  // Sync all active orders from backend on mount/login
   useEffect(() => {
     if (stableToken && stableUserId) {
-      const fetchActiveOrder = async () => {
-        // Track which declined order the user has already dismissed so we never
-        // re-show it (from cache OR from the API) until a brand-new one arrives.
+      const fetchActiveOrders = async () => {
         const dismissedOrderId = storage.getString(`dismissedDeclinedOrderId_${stableUserId}`);
-
-        // 1. Load from cache first for instant UI, but skip declined orders
-        //    that were already dismissed by the user.
-        const cachedOrder = storage.getObject<any>(`activeOrderObject_${stableUserId}`);
-        if (cachedOrder) {
-          const isAlreadyDismissed = cachedOrder.status === 'declined' &&
-            dismissedOrderId === String(cachedOrder.id);
-
-          if (!isAlreadyDismissed) {
-            console.log('[OrderSync] Loading order from cache');
-            setActiveOrder(cachedOrder);
-            setOrderId(cachedOrder.id);
-            const ts = new Date(cachedOrder.created_at).getTime();
-            setActiveOrderTimestamp(ts);
-            if (cachedOrder.status === 'declined') setShowOrderDeclined(true);
-          } else {
-            // Cached order was already dismissed — clear it so it never loads again.
-            console.log('[OrderSync] Skipping already-dismissed declined order from cache.');
-            storage.removeItem(`activeOrderObject_${stableUserId}`);
-          }
-        }
-
         try {
-          const res = await fetch(`${API_BASE_URL}/orders/active`, {
+          const res = await fetch(`${API_BASE_URL}/orders/active-all`, {
             headers: { Authorization: `Bearer ${stableToken}` }
           });
           const data = await res.json();
-          if (data.success && data.order) {
-            setActiveOrder(data.order);
-            // Save full object to cache
-            storage.setItem(`activeOrderObject_${stableUserId}`, data.order);
+          if (data.success && Array.isArray(data.orders)) {
+            const liveOrders = data.orders;
 
-            if (data.order?.status === 'delivered' || data.order?.is_completed) {
-              setOrderId(null);
-              setActiveOrderTimestamp(null);
-              storage.removeItem(`activeOrderId_${stableUserId}`);
-              storage.removeItem(`activeOrderTimestamp_${stableUserId}`);
-              storage.removeItem(`activeOrderObject_${stableUserId}`);
-              setShowOrderDeclined(false);
-              return;
-            }
-
-            if (data.order?.status === 'declined') {
-              // Only show the declined screen if this is a NEW declined order
-              // (one the user hasn't already dismissed).
-              const isAlreadyDismissed = dismissedOrderId === String(data.order.id);
-              if (!isAlreadyDismissed) {
-                setOrderId(data.order.id);
-                const ts = new Date(data.order.created_at).getTime();
-                setActiveOrderTimestamp(ts);
-                setShowOrderDeclined(true);
-                storage.setItem(`activeOrderId_${stableUserId}`, data.order.id);
-                storage.setItem(`activeOrderTimestamp_${stableUserId}`, ts);
-              } else {
-                // Already dismissed — treat as no active order.
-                console.log('[OrderSync] API returned already-dismissed declined order, ignoring.');
-                setActiveOrder(null);
-                setOrderId(null);
-                setActiveOrderTimestamp(null);
-                storage.removeItem(`activeOrderObject_${stableUserId}`);
+            // Detect any newly declined orders to show the declined screen
+            liveOrders.forEach((o: any) => {
+              if (o.status === 'declined') {
+                const isAlreadyDismissed = dismissedOrderId === String(o.id);
+                if (!isAlreadyDismissed) {
+                  setDeclinedOrderId(String(o.id));
+                  setShowOrderDeclined(true);
+                }
               }
-              return;
-            }
+            });
 
-            setOrderId(data.order.id);
-            const ts = new Date(data.order.created_at).getTime();
-            setActiveOrderTimestamp(ts);
-            // Backup locally
-            storage.setItem(`activeOrderId_${stableUserId}`, data.order.id);
-            storage.setItem(`activeOrderTimestamp_${stableUserId}`, ts);
-          } else if (data.success && !data.order) {
-            // Order is completed or no active order exists
-            setActiveOrder(null);
-            setOrderId(null);
-            setActiveOrderTimestamp(null);
-            storage.removeItem(`activeOrderId_${stableUserId}`);
-            storage.removeItem(`activeOrderTimestamp_${stableUserId}`);
-            storage.removeItem(`activeOrderObject_${stableUserId}`);
+            // Filter out already-dismissed declined orders from the widget
+            const displayOrders = liveOrders.filter((o: any) => {
+              if (o.status === 'declined' && dismissedOrderId === String(o.id)) return false;
+              return true;
+            });
+
+            setActiveOrders(displayOrders);
           }
         } catch (e) {
-          console.error('Error fetching active order:', e);
+          console.error('Error fetching active orders:', e);
         }
       };
 
-      fetchActiveOrder();
+      fetchActiveOrders();
     }
   }, [stableToken, stableUserId]);
 
@@ -657,23 +605,8 @@ function App() {
         }
       }
 
-      // --- 2. Restore any in-progress active order ---
-      if (user?.id) {
-        const savedOrderId = storage.getString(`activeOrderId_${user.id}`);
-        const savedOrderTs = storage.getNumber(`activeOrderTimestamp_${user.id}`);
-        if (savedOrderId && savedOrderTs) {
-          const elapsed = Math.floor((Date.now() - savedOrderTs) / 1000);
-          if (elapsed < 1200) {
-            setOrderId(savedOrderId);
-            setActiveOrderTimestamp(savedOrderTs);
-          } else {
-            storage.removeItem(`activeOrderId_${user.id}`);
-            storage.removeItem(`activeOrderTimestamp_${user.id}`);
-          }
-        }
-      }
+      // Active orders are fetched by the fetchActiveOrders effect after stableToken is set.
     } finally {
-      // Always hide the post-login loader so the app doesn't get stuck.
       setPostLoginLoading(false);
     }
   };
@@ -703,10 +636,9 @@ function App() {
     setHasLocation(false);
     setLocationData(null);
     setShowAccount(false);
-    setOrderId(null);
+    setActiveOrders([]);
     setSelectedTrackingOrderId(null);
-    setActiveOrder(null);
-    setActiveOrderTimestamp(null);
+    setDeclinedOrderId(null);
   };
 
   // Determine which screen to show
@@ -859,43 +791,31 @@ function App() {
       return (
         <OrderDeclinedScreen 
           onBack={async () => {
-            const currentOrderId = orderId;
+            const currentOrderId = declinedOrderId;
 
-            // 1. Mark dismissed BEFORE clearing state so any re-render triggered
-            //    by the state clears below cannot race and re-show the screen.
+            // 1. Mark dismissed before clearing state
             if (currentOrderId && userData?.id) {
               storage.setItem(`dismissedDeclinedOrderId_${userData.id}`, String(currentOrderId));
             }
 
-            // 2. Clear all local state & storage for this order.
+            // 2. Remove from activeOrders and clear declined state
             setShowOrderDeclined(false);
-            setActiveOrder(null);
-            setOrderId(null);
-            setActiveOrderTimestamp(null);
+            if (currentOrderId) removeActiveOrder(currentOrderId);
+            setDeclinedOrderId(null);
             if (userData) {
-              storage.removeItem(`activeOrderId_${userData.id}`);
-              storage.removeItem(`activeOrderTimestamp_${userData.id}`);
-              storage.removeItem(`activeOrderObject_${userData.id}`);
+              storage.removeItem(`activeOrderObject_${userData.id}_${currentOrderId}`);
             }
 
-            // 3. Best-effort PATCH to mark is_completed on the backend so the
-            //    next /orders/active call returns nothing. Even if this fails,
-            //    the dismissedDeclinedOrderId guard above prevents re-showing.
+            // 3. Best-effort PATCH to mark is_completed on backend
             if (currentOrderId && userToken) {
               try {
-                console.log('[App] Sending PATCH to mark declined order completed:', currentOrderId);
-                const response = await fetch(`${API_BASE_URL}/orders/${currentOrderId}`, {
+                await fetch(`${API_BASE_URL}/orders/${currentOrderId}`, {
                   method: 'PATCH',
-                  headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${userToken}`
-                  },
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
                   body: JSON.stringify({ is_completed: true })
                 });
-                const resData = await response.json();
-                console.log('[App] Mark completed response:', JSON.stringify(resData, null, 2));
               } catch (e) {
-                console.error("Failed to acknowledge declined order", e);
+                console.error('Failed to acknowledge declined order', e);
               }
             }
           }}
@@ -904,15 +824,16 @@ function App() {
     }
 
     if (showOrderTracking) {
+      const trackingId = selectedTrackingOrderId;
+      const matchedOrder = activeOrders.find(o => String(o.id) === String(trackingId));
       return (
         <OrderTrackingScreen 
-          orderId={selectedTrackingOrderId || orderId}
-          activeOrder={activeOrder}
+          orderId={trackingId}
+          activeOrder={matchedOrder || null}
           userToken={userToken}
           onHome={() => {
             setShowOrderTracking(false);
             setSelectedTrackingOrderId(null);
-            // We NO LONGER clear orderId or cart here so the active order widget can show
           }}
         />
       );
@@ -934,20 +855,13 @@ function App() {
           isSelfPickup={checkoutIsSelfPickup}
           paymentMode={checkoutPaymentMode}
           onSuccess={(id, order) => {
-            console.log('\n✅ [OrderPlacement] STEP 5: Order successfully completed and stored in local state. ID:', id);
-            console.log('Order Details:', JSON.stringify(order, null, 2));
-            setOrderId(id);
-            setActiveOrder(order);
-            const ts = Date.now();
-            setActiveOrderTimestamp(ts);
-
-            if (userData && userData.id) {
-              storage.setItem(`activeOrderId_${userData.id}`, id);
-              storage.setItem(`activeOrderTimestamp_${userData.id}`, ts);
+            console.log('\n✅ [OrderPlacement] STEP 5: Order placed. ID:', id);
+            upsertActiveOrder(order);
+            if (userData?.id) {
+              storage.setItem(`activeOrderObject_${userData.id}_${id}`, order);
             }
-
             setShowOrderConfirming(false);
-            setSelectedTrackingOrderId(null);
+            setSelectedTrackingOrderId(String(id));
             setShowOrderTracking(true);
             clearCart();
           }}
@@ -1024,29 +938,19 @@ function App() {
           itemCount={cartItemCount} 
           totalPrice={cartTotalPrice} 
           onPress={() => {
-            const hasRunningOrder = orderId && activeOrder && activeOrder?.status !== 'delivered' && activeOrder?.status !== 'declined' && !activeOrder?.is_completed;
-            if (hasRunningOrder) {
-              Alertt.alert('Order in Progress', 'You already have an active order. Please wait until it is completed before placing a new one.');
-              return;
-            }
             setShowCart(true);
           }} 
           lastItemImage={lastItemImage}
         />
         
-        {/* Active Order Widget (Floats globally if order is active and we are not on the tracking screen) */}
-        {orderId && activeOrder && !showOrderTracking && !showOrderDeclined && activeOrder?.status !== 'delivered' && activeOrder?.status !== 'declined' && !activeOrder?.is_completed && (
-          <ActiveOrderWidget 
-            onPress={() => {
-              if (activeOrder?.status === 'declined') {
-                setShowOrderDeclined(true);
-              } else {
-                setSelectedTrackingOrderId(null);
-                setShowOrderTracking(true);
-              }
-            }} 
-            timestamp={activeOrderTimestamp}
-            status={activeOrder?.status}
+        {/* Active Order Widget — shows all active orders, hidden when tracking screen is open */}
+        {activeOrders.filter(o => !o.is_completed && o.status !== 'delivered').length > 0 && !showOrderTracking && !showOrderDeclined && (
+          <ActiveOrderWidget
+            orders={activeOrders.filter(o => !o.is_completed && o.status !== 'delivered')}
+            onOrderPress={(orderId) => {
+              setSelectedTrackingOrderId(orderId);
+              setShowOrderTracking(true);
+            }}
           />
         )}
       </View>
