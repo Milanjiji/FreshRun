@@ -62,47 +62,105 @@ appCheck().initializeAppCheck({
 });
 // App Check is separate from Firebase Auth phone-number app verification.
 
+// Helpers for token validation and injection
+const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function decodeTokenPayload(token: string) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+    let output = '';
+    
+    for (let bc = 0, bs = 0, rbuffer, idx = 0; idx < base64.length; idx++) {
+      const char = base64.charAt(idx);
+      const pos = CHARS.indexOf(char);
+      if (pos === -1) continue;
+      bs = bc % 4 ? bs * 64 + pos : pos;
+      if (bc++ % 4) {
+        rbuffer = (bs >> ((-2 * bc) & 6));
+        output += String.fromCharCode(255 & rbuffer);
+      }
+    }
+    
+    return JSON.parse(output);
+  } catch (e) {
+    return null;
+  }
+}
+
+function isTokenExpired(token: string) {
+  const payload = decodeTokenPayload(token);
+  if (!payload || !payload.exp) return true;
+  
+  const expTimeMs = payload.exp * 1000;
+  return Date.now() >= (expTimeMs - 10000);
+}
+
+function injectAuthHeader(headers: any, token: string) {
+  if (!headers) {
+    return { 'Authorization': `Bearer ${token}` };
+  }
+  if (headers instanceof Headers) {
+    headers.set('Authorization', `Bearer ${token}`);
+    return headers;
+  }
+  if (Array.isArray(headers)) {
+    const newHeaders = [...headers];
+    const authIdx = newHeaders.findIndex(([k]) => k.toLowerCase() === 'authorization');
+    if (authIdx > -1) {
+      newHeaders[authIdx] = ['Authorization', `Bearer ${token}`];
+    } else {
+      newHeaders.push(['Authorization', `Bearer ${token}`]);
+    }
+    return newHeaders;
+  }
+  return {
+    ...headers,
+    'Authorization': `Bearer ${token}`
+  };
+}
+
 // Intercept global fetch to automatically inject a fresh Firebase ID token.
-// We use getIdToken(false) which returns the cached token if still valid, or
-// automatically refreshes it if it is expired — without forcing a new token
-// every call (which would re-trigger onIdTokenChanged and cascade re-renders).
-const originalFetch = global.fetch;
-global.fetch = async (input, init) => {
+// We check if the token is expired before calling the API, force-refreshing if needed.
+const originalFetch = (globalThis as any).fetch;
+(globalThis as any).fetch = async (input: any, init?: any) => {
   if (typeof input === 'string' && input.startsWith(API_BASE_URL)) {
     try {
       const currentUser = auth().currentUser;
       if (currentUser) {
-        let token: string;
-        try {
-          // false = use cached token; Firebase auto-refreshes when near expiry.
-          token = await currentUser.getIdToken(false);
-        } catch (refreshErr: any) {
-          console.warn('[Fetch Interceptor] getIdToken failed:', refreshErr?.message);
-          token = '';
+        let token = storage.getString('userToken') || '';
+
+        // If the token is missing or expired, fetch a fresh one before the call
+        if (!token || isTokenExpired(token)) {
+          console.log('[Fetch Interceptor] Token expired or missing. Refreshing before API call...');
+          try {
+            token = await currentUser.getIdToken(true);
+            if (token) {
+              storage.setItem('userToken', token);
+            }
+          } catch (refreshErr) {
+            console.error('[Fetch Interceptor] Failed to force-refresh token:', refreshErr);
+          }
         }
+
+        // If it's valid, fetch cached token using false (handles other SDK-side updates)
+        if (token && !isTokenExpired(token)) {
+          try {
+            token = await currentUser.getIdToken(false);
+          } catch (e) {
+            // fallback to local storage token
+          }
+        }
+
         if (token) {
           init = init || {};
-          let headers = init.headers || {};
-          if (headers instanceof Headers) {
-            headers.set('Authorization', `Bearer ${token}`);
-          } else if (Array.isArray(headers)) {
-            const authIdx = headers.findIndex(([k]) => k.toLowerCase() === 'authorization');
-            if (authIdx > -1) {
-              headers[authIdx] = ['Authorization', `Bearer ${token}`];
-            } else {
-              headers.push(['Authorization', `Bearer ${token}`]);
-            }
-          } else {
-            headers = {
-              ...headers,
-              'Authorization': `Bearer ${token}`
-            };
-          }
-          init.headers = headers;
+          init.headers = injectAuthHeader(init.headers, token);
         }
       }
     } catch (error) {
-      console.error('[Fetch Interceptor] Error injecting token:', error);
+      console.error('[Fetch Interceptor] Error in proactive token check:', error);
     }
   }
   return originalFetch(input, init);
@@ -438,6 +496,32 @@ function App() {
     };
 
     checkAppState();
+  }, []);
+
+  // Proactive token refresh when app transitions back to the foreground (active state)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      if (nextAppState === 'active') {
+        console.log('[Auth] App moved to foreground - proactively refreshing session...');
+        try {
+          const currentUser = auth().currentUser;
+          if (currentUser) {
+            const freshToken = await currentUser.getIdToken(true);
+            if (freshToken) {
+              setUserToken(freshToken);
+              storage.setItem('userToken', freshToken);
+              console.log('[Auth] Session successfully renewed proactively on foreground.');
+            }
+          }
+        } catch (err) {
+          console.warn('[Auth] Proactive session refresh failed:', err);
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   const socketRef = useRef<any>(null);
