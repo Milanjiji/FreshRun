@@ -38,7 +38,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   onProfilePress,
   onStorePress,
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState('restaurants');
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => {
+    return storage.getString('last_visited_category') || 'restaurants';
+  });
   const [stores, setStores] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +59,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     { id: "fish", name: "FISH", icon: "fish-outline" },
     { id: "medicine", name: "MEDICINE", icon: "medkit-outline" }
   ]);
+
+  // Save selected category to storage whenever it changes
+  useEffect(() => {
+    if (selectedCategory) {
+      storage.setItem('last_visited_category', selectedCategory);
+    }
+  }, [selectedCategory]);
 
   // Load cached delivery time on mount
   useEffect(() => {

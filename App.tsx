@@ -803,244 +803,241 @@ function App() {
       );
     }
 
-    if (showInfo) {
-      return (
-        <InfoScreen 
-          type={showInfo}
-          onBack={() => setShowInfo(null)}
-        />
-      );
-    }
-
-    if (selectedTicketId) {
-      return (
-        <TicketDetailsScreen 
-          ticketId={selectedTicketId}
-          userToken={userToken!}
-          onBack={() => {
-            setSelectedTicketId(null);
-            setShowHelp(true);
-          }}
-        />
-      );
-    }
-
-    if (showHelp) {
-      return (
-        <HelpScreen 
-          userToken={userToken!}
-          preAttachedOrder={preAttachedHelpOrder}
-          onBack={() => {
-            setShowHelp(false);
-            setPreAttachedHelpOrder(null);
-            setShowAccount(true);
-          }}
-          onViewTicketDetails={(ticketId) => {
-            setShowHelp(false);
-            setSelectedTicketId(ticketId);
-          }}
-        />
-      );
-    }
-
-    if (showAccount) {
-      return (
-        <AccountScreen 
-          userData={userData}
-          userToken={userToken!}
-          onBack={() => setShowAccount(false)}
-          onLogout={handleLogout}
-          onSavedAddressPress={() => {
-            setShowAccount(false);
-            setIsSelectingLocation(true);
-          }}
-          onOrderPress={(id) => {
-            setSelectedTrackingOrderId(id);
-            setShowAccount(false);
-            setShowOrderTracking(true);
-          }}
-          onInfoPress={(type) => {
-             setShowInfo(type);
-          }}
-          onHelpPress={(preAttachedOrder) => {
-            setPreAttachedHelpOrder(preAttachedOrder || null);
-            setShowAccount(false);
-            setShowHelp(true);
-          }}
-        />
-      );
-    }
-
-    if (showOrderDeclined) {
-      return (
-        <OrderDeclinedScreen 
-          onBack={async () => {
-            const currentOrderId = declinedOrderId;
-
-            // 1. Mark dismissed before clearing state
-            if (currentOrderId && userData?.id) {
-              storage.setItem(`dismissedDeclinedOrderId_${userData.id}`, String(currentOrderId));
-            }
-
-            // 2. Remove from activeOrders and clear declined state
-            setShowOrderDeclined(false);
-            if (currentOrderId) removeActiveOrder(currentOrderId);
-            setDeclinedOrderId(null);
-            if (userData) {
-              storage.removeItem(`activeOrderObject_${userData.id}_${currentOrderId}`);
-            }
-
-            // 3. Best-effort PATCH to mark is_completed on backend
-            if (currentOrderId && userToken) {
-              try {
-                await fetch(`${API_BASE_URL}/orders/${currentOrderId}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
-                  body: JSON.stringify({ is_completed: true })
-                });
-              } catch (e) {
-                console.error('Failed to acknowledge declined order', e);
-              }
-            }
-          }}
-        />
-      );
-    }
-
-    if (showOrderTracking) {
-      const trackingId = selectedTrackingOrderId;
-      const matchedOrder = activeOrders.find(o => String(o.id) === String(trackingId));
-      return (
-        <OrderTrackingScreen 
-          orderId={trackingId}
-          activeOrder={matchedOrder || null}
-          userToken={userToken}
-          onHome={() => {
-            setShowOrderTracking(false);
-            setSelectedTrackingOrderId(null);
-          }}
-        />
-      );
-    }
-
-    if (showOrderConfirming) {
-      return (
-        <OrderConfirmingScreen
-          cartItems={cartItems}
-          totalAmount={checkoutTotalAmount}
-          deliveryFee={checkoutDeliveryFee}
-          deliveryTip={checkoutDeliveryTip}
-          rainyFee={checkoutRainyFee}
-          lateNightFee={checkoutLateNightFee}
-          extraStoreCharge={checkoutExtraStoreCharge}
-          userData={userData}
-          locationData={locationData}
-          userToken={userToken}
-          isSelfPickup={checkoutIsSelfPickup}
-          paymentMode={checkoutPaymentMode}
-          onSuccess={(id, order) => {
-            console.log('\n✅ [OrderPlacement] STEP 5: Order placed. ID:', id);
-            upsertActiveOrder(order);
-            if (userData?.id) {
-              storage.setItem(`activeOrderObject_${userData.id}_${id}`, order);
-            }
-            setShowOrderConfirming(false);
-            setSelectedTrackingOrderId(String(id));
-            setShowOrderTracking(true);
-            clearCart();
-          }}
-          onFailure={() => {
-            setShowOrderConfirming(false);
-            setShowPayment(true);
-          }}
-        />
-      );
-    }
-
-    if (showPayment) {
-      return (
-        <PaymentScreen 
-          cartItems={cartItems}
-          totalAmount={checkoutTotalAmount}
-          userData={userData}
-          userToken={userToken}
-          onBack={() => setShowPayment(false)}
-          onOrderConfirmed={(dummyId, selectedMode) => {
-            setCheckoutPaymentMode(selectedMode);
-            setShowPayment(false);
-            setShowCart(false);
-            setShowOrderConfirming(true);
-          }}
-        />
-      );
-    }
-
-    if (showCart) {
-      return (
-        <CartScreen 
-          cartItems={cartItems}
-          onBack={() => setShowCart(false)}
-          updateQuantity={updateQuantity}
-          clearCart={clearCart}
-          locationAddress={userData?.address?.line1}
-          socket={socketRef.current}
-          onProceedToCheckout={(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee, extraStoreCharge) => {
-            setCheckoutTotalAmount(total);
-            setCheckoutDeliveryFee(deliveryFee);
-            setCheckoutDeliveryTip(deliveryTip);
-            setCheckoutRainyFee(rainyFee);
-            setCheckoutLateNightFee(lateNightFee);
-            setCheckoutExtraStoreCharge(extraStoreCharge || 0);
-            setCheckoutIsSelfPickup(!!isSelfPickup);
-            setShowPayment(true);
-          }}
-        />
-      );
-    }
+    const isSecondaryScreenOpen = 
+      !!showInfo || 
+      !!selectedTicketId || 
+      showHelp || 
+      showAccount || 
+      showOrderDeclined || 
+      showOrderTracking || 
+      showOrderConfirming || 
+      showPayment || 
+      showCart;
 
     return (
       <View style={{ flex: 1 }}>
-        {selectedStore ? (
-          <StoreDetailsScreen 
-            store={selectedStore} 
-            onBack={() => setSelectedStore(null)} 
-            addToCart={addToCart}
-            cartItems={cartItems}
-            updateQuantity={updateQuantity}
+        {/* Main View: contains HomeScreen/StoreDetailsScreen, kept mounted but hidden when secondary screen is open */}
+        <View style={[{ flex: 1 }, isSecondaryScreenOpen ? { display: 'none' } : undefined]}>
+          {/* Keep HomeScreen mounted, hide it when a store is selected */}
+          <View style={[{ flex: 1 }, selectedStore ? { display: 'none' } : undefined]}>
+            <HomeScreen 
+              userData={userData} 
+              locationData={locationData} 
+              onLogout={handleLogout} 
+              onAddressPress={() => setIsSelectingLocation(true)}
+              onProfilePress={() => setShowAccount(true)}
+              onStorePress={(store) => setSelectedStore(store)}
+            />
+          </View>
+
+          {/* Render StoreDetailsScreen when a store is selected */}
+          {selectedStore && (
+            <StoreDetailsScreen 
+              store={selectedStore} 
+              onBack={() => setSelectedStore(null)} 
+              addToCart={addToCart}
+              cartItems={cartItems}
+              updateQuantity={updateQuantity}
+            />
+          )}
+          <CartFooter 
+            itemCount={cartItemCount} 
+            totalPrice={cartTotalPrice} 
+            onPress={() => {
+              setShowCart(true);
+            }} 
+            lastItemImage={lastItemImage}
           />
-        ) : (
-          <HomeScreen 
-            userData={userData} 
-            locationData={locationData} 
-            onLogout={handleLogout} 
-            onAddressPress={() => setIsSelectingLocation(true)}
-            onProfilePress={() => setShowAccount(true)}
-            onStorePress={(store) => setSelectedStore(store)}
+          
+          {/* Active Order Widget — shows all active orders, hidden when tracking screen is open */}
+          {activeOrders.filter(o => !o.is_completed && o.status !== 'delivered').length > 0 && !showOrderTracking && !showOrderDeclined && (
+            <ActiveOrderWidget
+              orders={activeOrders.filter(o => !o.is_completed && o.status !== 'delivered')}
+              onOrderPress={(orderId) => {
+                setSelectedTrackingOrderId(orderId);
+                setShowOrderTracking(true);
+              }}
+            />
+          )}
+        </View>
+
+        {/* Secondary Overlay Screens */}
+        {showInfo && (
+          <InfoScreen 
+            type={showInfo}
+            onBack={() => setShowInfo(null)}
           />
         )}
-        <CartFooter 
-          itemCount={cartItemCount} 
-          totalPrice={cartTotalPrice} 
-          onPress={() => {
-            setShowCart(true);
-          }} 
-          lastItemImage={lastItemImage}
-        />
-        
-        {/* Active Order Widget — shows all active orders, hidden when tracking screen is open */}
-        {activeOrders.filter(o => !o.is_completed && o.status !== 'delivered').length > 0 && !showOrderTracking && !showOrderDeclined && (
-          <ActiveOrderWidget
-            orders={activeOrders.filter(o => !o.is_completed && o.status !== 'delivered')}
-            onOrderPress={(orderId) => {
-              setSelectedTrackingOrderId(orderId);
+
+        {selectedTicketId && (
+          <TicketDetailsScreen 
+            ticketId={selectedTicketId}
+            userToken={userToken!}
+            onBack={() => {
+              setSelectedTicketId(null);
+              setShowHelp(true);
+            }}
+          />
+        )}
+
+        {showHelp && (
+          <HelpScreen 
+            userToken={userToken!}
+            preAttachedOrder={preAttachedHelpOrder}
+            onBack={() => {
+              setShowHelp(false);
+              setPreAttachedHelpOrder(null);
+              setShowAccount(true);
+            }}
+            onViewTicketDetails={(ticketId) => {
+              setShowHelp(false);
+              setSelectedTicketId(ticketId);
+            }}
+          />
+        )}
+
+        {showAccount && (
+          <AccountScreen 
+            userData={userData}
+            userToken={userToken!}
+            onBack={() => setShowAccount(false)}
+            onLogout={handleLogout}
+            onSavedAddressPress={() => {
+              setShowAccount(false);
+              setIsSelectingLocation(true);
+            }}
+            onOrderPress={(id) => {
+              setSelectedTrackingOrderId(id);
+              setShowAccount(false);
               setShowOrderTracking(true);
+            }}
+            onInfoPress={(type) => {
+               setShowInfo(type);
+            }}
+            onHelpPress={(preAttachedOrder) => {
+              setPreAttachedHelpOrder(preAttachedOrder || null);
+              setShowAccount(false);
+              setShowHelp(true);
+            }}
+          />
+        )}
+
+        {showOrderDeclined && (
+          <OrderDeclinedScreen 
+            onBack={async () => {
+              const currentOrderId = declinedOrderId;
+
+              // 1. Mark dismissed before clearing state
+              if (currentOrderId && userData?.id) {
+                storage.setItem(`dismissedDeclinedOrderId_${userData.id}`, String(currentOrderId));
+              }
+
+              // 2. Remove from activeOrders and clear declined state
+              setShowOrderDeclined(false);
+              if (currentOrderId) removeActiveOrder(currentOrderId);
+              setDeclinedOrderId(null);
+              if (userData) {
+                storage.removeItem(`activeOrderObject_${userData.id}_${currentOrderId}`);
+              }
+
+              // 3. Best-effort PATCH to mark is_completed on backend
+              if (currentOrderId && userToken) {
+                try {
+                  await fetch(`${API_BASE_URL}/orders/${currentOrderId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
+                    body: JSON.stringify({ is_completed: true })
+                  });
+                } catch (e) {
+                  console.error('Failed to acknowledge declined order', e);
+                }
+              }
+            }}
+          />
+        )}
+
+        {showOrderTracking && (
+          <OrderTrackingScreen 
+            orderId={selectedTrackingOrderId}
+            activeOrder={activeOrders.find(o => String(o.id) === String(selectedTrackingOrderId)) || null}
+            userToken={userToken}
+            onHome={() => {
+              setShowOrderTracking(false);
+              setSelectedTrackingOrderId(null);
+            }}
+          />
+        )}
+
+        {showOrderConfirming && (
+          <OrderConfirmingScreen
+            cartItems={cartItems}
+            totalAmount={checkoutTotalAmount}
+            deliveryFee={checkoutDeliveryFee}
+            deliveryTip={checkoutDeliveryTip}
+            rainyFee={checkoutRainyFee}
+            lateNightFee={checkoutLateNightFee}
+            extraStoreCharge={checkoutExtraStoreCharge}
+            userData={userData}
+            locationData={locationData}
+            userToken={userToken}
+            isSelfPickup={checkoutIsSelfPickup}
+            paymentMode={checkoutPaymentMode}
+            onSuccess={(id, order) => {
+              console.log('\n✅ [OrderPlacement] STEP 5: Order placed. ID:', id);
+              upsertActiveOrder(order);
+              if (userData?.id) {
+                storage.setItem(`activeOrderObject_${userData.id}_${id}`, order);
+              }
+              setShowOrderConfirming(false);
+              setSelectedTrackingOrderId(String(id));
+              setShowOrderTracking(true);
+              clearCart();
+            }}
+            onFailure={() => {
+              setShowOrderConfirming(false);
+              setShowPayment(true);
+            }}
+          />
+        )}
+
+        {showPayment && (
+          <PaymentScreen 
+            cartItems={cartItems}
+            totalAmount={checkoutTotalAmount}
+            userData={userData}
+            userToken={userToken}
+            onBack={() => setShowPayment(false)}
+            onOrderConfirmed={(dummyId, selectedMode) => {
+              setCheckoutPaymentMode(selectedMode);
+              setShowPayment(false);
+              setShowCart(false);
+              setShowOrderConfirming(true);
+            }}
+          />
+        )}
+
+        {showCart && (
+          <CartScreen 
+            cartItems={cartItems}
+            onBack={() => setShowCart(false)}
+            updateQuantity={updateQuantity}
+            clearCart={clearCart}
+            locationAddress={userData?.address?.line1}
+            socket={socketRef.current}
+            onProceedToCheckout={(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee, extraStoreCharge) => {
+              setCheckoutTotalAmount(total);
+              setCheckoutDeliveryFee(deliveryFee);
+              setCheckoutDeliveryTip(deliveryTip);
+              setCheckoutRainyFee(rainyFee);
+              setCheckoutLateNightFee(lateNightFee);
+              setCheckoutExtraStoreCharge(extraStoreCharge || 0);
+              setCheckoutIsSelfPickup(!!isSelfPickup);
+              setShowPayment(true);
             }}
           />
         )}
       </View>
     );
-
-
   };
 
   return (
