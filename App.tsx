@@ -28,7 +28,6 @@ import CartScreen from './src/screens/CartScreen';
 import PaymentScreen from './src/screens/PaymentScreen';
 import OrderConfirmingScreen from './src/screens/OrderConfirmingScreen';
 import OrderTrackingScreen from './src/screens/OrderTrackingScreen';
-import OrderDeclinedScreen from './src/screens/OrderDeclinedScreen';
 import InfoScreen, { InfoType } from './src/screens/InfoScreen';
 import HelpScreen from './src/screens/HelpScreen';
 import TicketDetailsScreen from './src/screens/TicketDetailsScreen';
@@ -287,7 +286,6 @@ function App() {
   const [showPayment, setShowPayment] = useState(false);
   const [showOrderConfirming, setShowOrderConfirming] = useState(false);
   const [showOrderTracking, setShowOrderTracking] = useState(false);
-  const [showOrderDeclined, setShowOrderDeclined] = useState(false);
   const [showInfo, setShowInfo] = useState<InfoType | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [preAttachedHelpOrder, setPreAttachedHelpOrder] = useState<any>(null);
@@ -296,8 +294,6 @@ function App() {
   // Multi-order support: all non-completed active orders for this user
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null);
-  // Keep a single "primary" declined order for the OrderDeclinedScreen flow
-  const [declinedOrderId, setDeclinedOrderId] = useState<string | null>(null);
 
   // Helper: upsert an order into activeOrders (add if new, update if existing)
   const upsertActiveOrder = (order: any) => {
@@ -574,15 +570,28 @@ function App() {
             }
             return prev;
           });
-          setShowOrderDeclined(false);
           return;
         }
 
         if (updatedOrder?.status === 'declined') {
-          upsertActiveOrder(updatedOrder);
-          setDeclinedOrderId(String(updatedOrder.id));
-          setShowOrderTracking(false);
-          setShowOrderDeclined(true);
+          // Auto-acknowledge and clean up
+          removeActiveOrder(updatedOrder.id);
+          storage.removeItem(`activeOrderObject_${stableUserId}_${updatedOrder.id}`);
+          // If we were tracking this specific order, go back to home
+          setSelectedTrackingOrderId(prev => {
+            if (String(prev) === String(updatedOrder.id)) {
+              setShowOrderTracking(false);
+              return null;
+            }
+            return prev;
+          });
+
+          // PATCH backend in the background to acknowledge
+          fetch(`${API_BASE_URL}/orders/${updatedOrder.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stableToken}` },
+            body: JSON.stringify({ is_completed: true })
+          }).catch(e => console.error('Failed to auto-dismiss declined order via socket', e));
           return;
         }
 
@@ -616,7 +625,6 @@ function App() {
   useEffect(() => {
     if (stableToken && stableUserId) {
       const fetchActiveOrders = async () => {
-        const dismissedOrderId = storage.getString(`dismissedDeclinedOrderId_${stableUserId}`);
         try {
           const res = await fetch(`${API_BASE_URL}/orders/active-all`, {
             headers: { Authorization: `Bearer ${stableToken}` }
@@ -625,30 +633,29 @@ function App() {
           if (data.success && Array.isArray(data.orders)) {
             const liveOrders = data.orders;
 
-            // Detect any newly declined orders to show the declined screen
+            // Auto-acknowledge and clean up any declined orders
             liveOrders.forEach((o: any) => {
               if (o.status === 'declined') {
-                const isAlreadyDismissed = dismissedOrderId === String(o.id);
-                if (!isAlreadyDismissed) {
-                  setDeclinedOrderId(String(o.id));
-                  setShowOrderDeclined(true);
-                }
+                console.log(`[OrderSync] Auto-acknowledging declined order ${o.id}`);
+                // 1. Remove from local storage
+                storage.removeItem(`activeOrderObject_${stableUserId}_${o.id}`);
+                // 2. Mark as completed on backend immediately
+                fetch(`${API_BASE_URL}/orders/${o.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stableToken}` },
+                  body: JSON.stringify({ is_completed: true })
+                }).catch(e => console.error('Failed to auto-dismiss declined order via sync', e));
               }
             });
 
-            // Filter out already-dismissed declined orders from the widget
-            const displayOrders = liveOrders.filter((o: any) => {
-              if (o.status === 'declined' && dismissedOrderId === String(o.id)) return false;
-              return true;
-            });
-
+            // Filter out all declined orders completely from the widget and active list
+            const displayOrders = liveOrders.filter((o: any) => o.status !== 'declined');
             setActiveOrders(displayOrders);
           }
         } catch (e) {
           console.error('Error fetching active orders:', e);
         }
       };
-
       fetchActiveOrders();
     }
   }, [stableToken, stableUserId]);
@@ -722,7 +729,6 @@ function App() {
     setShowAccount(false);
     setActiveOrders([]);
     setSelectedTrackingOrderId(null);
-    setDeclinedOrderId(null);
   };
 
   // Determine which screen to show
@@ -808,7 +814,6 @@ function App() {
       !!selectedTicketId || 
       showHelp || 
       showAccount || 
-      showOrderDeclined || 
       showOrderTracking || 
       showOrderConfirming || 
       showPayment || 
@@ -850,7 +855,7 @@ function App() {
           />
           
           {/* Active Order Widget — shows all active orders, hidden when tracking screen is open */}
-          {activeOrders.filter(o => !o.is_completed && o.status !== 'delivered').length > 0 && !showOrderTracking && !showOrderDeclined && (
+          {activeOrders.filter(o => !o.is_completed && o.status !== 'delivered').length > 0 && !showOrderTracking && (
             <ActiveOrderWidget
               orders={activeOrders.filter(o => !o.is_completed && o.status !== 'delivered')}
               onOrderPress={(orderId) => {
@@ -922,39 +927,7 @@ function App() {
           />
         )}
 
-        {showOrderDeclined && (
-          <OrderDeclinedScreen 
-            onBack={async () => {
-              const currentOrderId = declinedOrderId;
 
-              // 1. Mark dismissed before clearing state
-              if (currentOrderId && userData?.id) {
-                storage.setItem(`dismissedDeclinedOrderId_${userData.id}`, String(currentOrderId));
-              }
-
-              // 2. Remove from activeOrders and clear declined state
-              setShowOrderDeclined(false);
-              if (currentOrderId) removeActiveOrder(currentOrderId);
-              setDeclinedOrderId(null);
-              if (userData) {
-                storage.removeItem(`activeOrderObject_${userData.id}_${currentOrderId}`);
-              }
-
-              // 3. Best-effort PATCH to mark is_completed on backend
-              if (currentOrderId && userToken) {
-                try {
-                  await fetch(`${API_BASE_URL}/orders/${currentOrderId}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
-                    body: JSON.stringify({ is_completed: true })
-                  });
-                } catch (e) {
-                  console.error('Failed to acknowledge declined order', e);
-                }
-              }
-            }}
-          />
-        )}
 
         {showOrderTracking && (
           <OrderTrackingScreen 
