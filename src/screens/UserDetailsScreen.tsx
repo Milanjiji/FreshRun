@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Alertt } from '../components/Alertt';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import axios from 'axios';
+import api from '../utils/api';
 import { storage } from '../utils/storage';
 import { Fonts } from '../theme/typography';
 
@@ -52,8 +52,7 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
   useEffect(() => {
     const fetchExistingProfile = async () => {
       try {
-        const response = await axios.get(`${BACKEND_URL}/user/profile`, {
-          headers: { Authorization: `Bearer ${userToken}` },
+        const response = await api.get('/user/profile', {
           timeout: 10000,
         });
 
@@ -95,25 +94,23 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
         const finalSaveAs = saveAs.trim() || getRandomAddressName();
 
         // 1. Add as a new address entry
-        const addResponse = await axios.post(
-          `${BACKEND_URL}/user/addresses`,
+        const addResponse = await api.post(
+          '/user/addresses',
           { 
             fullName, email, houseNumber, addressLine, landmark,
             pincode, city, deliveryMessage, addressType, saveAs: finalSaveAs,
             latitude: locationData?.latitude,
             longitude: locationData?.longitude
-          },
-          { headers: { Authorization: `Bearer ${userToken}` } }
+          }
         );
 
         if (addResponse.data.success) {
           const newAddressId = addResponse.data.address.id;
           
           // 2. Select it to make it the active one
-          const selectResponse = await axios.post(
-            `${BACKEND_URL}/user/addresses/select`,
-            { addressId: newAddressId },
-            { headers: { Authorization: `Bearer ${userToken}` } }
+          const selectResponse = await api.post(
+            '/user/addresses/select',
+            { addressId: newAddressId }
           );
 
           if (selectResponse.data.success) {
@@ -126,8 +123,8 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
         const finalSaveAs = saveAs.trim() || (userData?.saveAs) || getRandomAddressName();
 
         // Standard profile update
-        const response = await axios.put(
-          `${BACKEND_URL}/user/profile`,
+        const response = await api.put(
+          '/user/profile',
           { 
             fullName, email, houseNumber, addressLine, landmark,
             pincode, city, deliveryMessage, addressType, saveAs: finalSaveAs,
@@ -135,7 +132,6 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
             longitude: locationData?.longitude
           },
           {
-            headers: { Authorization: `Bearer ${userToken}` },
             timeout: 15000,
           }
         );

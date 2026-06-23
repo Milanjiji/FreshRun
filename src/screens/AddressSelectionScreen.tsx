@@ -17,7 +17,7 @@ import Geolocation from '@react-native-community/geolocation';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { Alertt } from '../components/Alertt';
-import axios from 'axios';
+import api from '../utils/api';
 
 import { API_BASE_URL } from '../config/api';
 
@@ -84,8 +84,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
 
   const fetchAddresses = async () => {
     try {
-      const response = await axios.get(`${BACKEND_URL}/user/addresses`, {
-        headers: { Authorization: `Bearer ${userToken}` },
+      const response = await api.get('/user/addresses', {
         timeout: 10000,
       });
 
@@ -157,10 +156,9 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
   const handleSelectAddress = async (addressId: string, isAuto: boolean = false) => {
     setSelectingId(addressId);
     try {
-      const response = await axios.post(
-        `${BACKEND_URL}/user/addresses/select`,
-        { addressId },
-        { headers: { Authorization: `Bearer ${userToken}` } }
+      const response = await api.post(
+        '/user/addresses/select',
+        { addressId }
       );
 
       if (response.data.success) {
@@ -189,9 +187,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
           style: 'destructive',
           onPress: async () => {
             try {
-              const response = await axios.delete(`${BACKEND_URL}/user/addresses/${addressId}`, {
-                headers: { Authorization: `Bearer ${userToken}` }
-              });
+              const response = await api.delete(`/user/addresses/${addressId}`);
               if (response.data.success) {
                 fetchAddresses();
               }

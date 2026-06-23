@@ -14,6 +14,7 @@ import {
   import { SafeAreaView } from 'react-native-safe-area-context';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import axios from 'axios';
+import api from '../utils/api';
 import { storage } from '../utils/storage';
 import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
@@ -144,15 +145,15 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
         console.log('Firebase verified. Exchanging for JWT...');
 
         // Call Backend
-        const response = await axios.post(
-          `${BACKEND_URL}/auth/login`,
+        const response = await api.post(
+          '/auth/login',
           {
             idToken,
             role,
           },
           {
             timeout: BACKEND_REQUEST_TIMEOUT_MS,
-          },
+          }
         );
 
         if (response.data.success) {
