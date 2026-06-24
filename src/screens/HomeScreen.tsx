@@ -8,6 +8,7 @@ import {
   StatusBar,
   Image,
   TextInput,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import io from 'socket.io-client';
@@ -20,6 +21,7 @@ import DebugMapScreen from './DebugMapScreen';
 import { storage } from '../utils/storage';
 import { calculateDistance, estimateDeliveryTime, formatDeliveryTime } from '../utils/distance';
 import { getOptimizedImageUrl } from '../utils/image';
+import { TopCropImage } from '../components/TopCropImage';
 
 
 interface HomeScreenProps {
@@ -29,6 +31,7 @@ interface HomeScreenProps {
   onAddressPress?: () => void;
   onProfilePress?: () => void;
   onStorePress: (store: any) => void;
+  onBannerPress?: (actionType: string, payload: any, imageUrl?: string) => void;
 }
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ 
@@ -37,12 +40,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   onAddressPress,
   onProfilePress,
   onStorePress,
+  onBannerPress,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>(() => {
     return storage.getString('last_visited_category') || 'restaurants';
   });
   const [stores, setStores] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [banners, setBanners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isVeg, setIsVeg] = useState(false);
@@ -50,6 +55,25 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [avgDeliveryTime, setAvgDeliveryTime] = useState<number>(20);
 
   const socketRef = useRef<any>(null);
+  const bannerScrollRef = useRef<ScrollView>(null);
+  const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+  const { width: screenWidth } = Dimensions.get('window');
+  const bannerWidth = screenWidth - 30; // 15px padding on each side
+  const snapInterval = bannerWidth + 15; // Width + Gap
+
+  // Auto-scroll banners
+  useEffect(() => {
+    if (banners.length > 1) {
+      const interval = setInterval(() => {
+        setCurrentBannerIndex((prev) => {
+          const nextIndex = (prev + 1) % banners.length;
+          bannerScrollRef.current?.scrollTo({ x: nextIndex * snapInterval, animated: true });
+          return nextIndex;
+        });
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [banners.length, snapInterval]);
 
   const [categories, setCategories] = useState<any[]>([
     { id: "restaurants", name: "RESTAURANTS", icon: "restaurant-outline" },
@@ -144,6 +168,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     console.log('[HomeScreen] fetchHomeData started');
     try {
       const baseUrl = API_BASE_URL;
+
+      // 0. Fetch Banners
+      try {
+        const bannerRes = await fetch(`${baseUrl}/banners`);
+        const bannerData = await bannerRes.json();
+        if (bannerData.success) {
+          setBanners(bannerData.data);
+        }
+      } catch (err) {
+        console.error('[HomeScreen] Error fetching banners:', err);
+      }
 
       // 1. Fetch Global Settings
       const settingsRes = await fetch(`${baseUrl}/settings`);
@@ -315,6 +350,43 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                 <View style={[styles.toggleThumb, isVeg && styles.toggleThumbActive]} />
               </View>
             </TouchableOpacity>
+          </View>
+
+          {/* Dynamic Banners Carousel (Moved here between search and tabs) */}
+          <View style={styles.bannerSection}>
+            <ScrollView 
+              ref={bannerScrollRef}
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              contentContainerStyle={styles.bannerScroll}
+              snapToInterval={snapInterval}
+              decelerationRate="fast"
+              onMomentumScrollEnd={(e) => {
+                const newIndex = Math.round(e.nativeEvent.contentOffset.x / snapInterval);
+                setCurrentBannerIndex(newIndex);
+              }}
+            >
+              {banners.length > 0 ? (
+                banners.map((banner) => (
+                  <TouchableOpacity 
+                    key={banner.id} 
+                    style={[styles.bannerCard, { width: bannerWidth }]}
+                    onPress={() => onBannerPress && onBannerPress(banner.action_type, banner.action_payload, banner.image_url)}
+                    activeOpacity={0.9}
+                  >
+                    <TopCropImage 
+                      uri={getOptimizedImageUrl(banner.image_url, 600)} 
+                      containerStyle={styles.bannerImage} 
+                    />
+                  </TouchableOpacity>
+                ))
+              ) : (
+                /* Placeholder if no banners */
+                <View style={[styles.bannerCard, styles.bannerPlaceholder, { width: bannerWidth }]}>
+                  <Icon name="image-outline" size={40} color="#ccc" />
+                </View>
+              )}
+            </ScrollView>
           </View>
 
           {/* Category Tabs */}
@@ -584,6 +656,28 @@ const styles = StyleSheet.create({
   toggleThumbActive: {
     backgroundColor: Colors.primary,
     transform: [{ translateX: 12 }],
+  },
+  bannerSection: {
+    paddingVertical: 15,
+  },
+  bannerScroll: {
+    paddingHorizontal: 15,
+    gap: 15,
+  },
+  bannerCard: {
+    height: 160,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#f0f0f0',
+  },
+  bannerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  bannerPlaceholder: {
+    backgroundColor: '#e0e0e0',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mindSection: {
     paddingVertical: 15,

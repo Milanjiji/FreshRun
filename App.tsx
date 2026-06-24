@@ -35,6 +35,7 @@ import LoadingTransition from './src/components/LoadingTransition';
 import { Alertt, CustomAlert } from './src/components/Alertt';
 import CartFooter from './src/components/CartFooter';
 import ActiveOrderWidget from './src/components/ActiveOrderWidget';
+import PromotionalFilterScreen from './src/screens/PromotionalFilterScreen';
 
 import { Colors } from './src/theme/colors';
 import { Fonts } from './src/theme/typography';
@@ -310,6 +311,7 @@ function App() {
   // Multi-order support: all non-completed active orders for this user
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null);
+  const [promotionalBannerData, setPromotionalBannerData] = useState<{ maxPrice?: number, title?: string, imageUrl?: string } | null>(null);
 
   // Helper: upsert an order into activeOrders (add if new, update if existing)
   const upsertActiveOrder = (order: any) => {
@@ -833,7 +835,8 @@ function App() {
       showOrderTracking || 
       showOrderConfirming || 
       showPayment || 
-      showCart;
+      showCart ||
+      !!promotionalBannerData;
 
     return (
       <View style={{ flex: 1 }}>
@@ -848,6 +851,31 @@ function App() {
               onAddressPress={() => setIsSelectingLocation(true)}
               onProfilePress={() => setShowAccount(true)}
               onStorePress={(store) => setSelectedStore(store)}
+              onBannerPress={(actionType, payload, imageUrl) => {
+                if (actionType === 'filter_price') {
+                  setPromotionalBannerData({ maxPrice: payload.max_price, title: payload.title, imageUrl });
+                } else if (actionType === 'store_redirect') {
+                  const storeId = payload.store_id;
+                  if (storeId) {
+                    setPostLoginLoading(true);
+                    fetch(`${API_BASE_URL}/stores/${storeId}`)
+                      .then(res => res.json())
+                      .then(data => {
+                        if (data.success && data.data) {
+                          setSelectedStore(data.data);
+                        } else {
+                          Alertt.alert("Error", "Could not load store details.");
+                        }
+                      })
+                      .catch(err => {
+                        Alertt.alert("Error", "Failed to connect to server.");
+                      })
+                      .finally(() => {
+                        setPostLoginLoading(false);
+                      });
+                  }
+                }
+              }}
             />
           </View>
 
@@ -883,6 +911,16 @@ function App() {
         </View>
 
         {/* Secondary Overlay Screens */}
+        {promotionalBannerData && (
+          <PromotionalFilterScreen 
+            route={{ params: promotionalBannerData }}
+            navigation={{ goBack: () => setPromotionalBannerData(null) }}
+            addToCart={addToCart}
+            cartItems={cartItems}
+            updateQuantity={updateQuantity}
+          />
+        )}
+
         {showInfo && (
           <InfoScreen 
             type={showInfo}
