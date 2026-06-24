@@ -3,20 +3,25 @@ import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { useCartStore } from '../store/useCartStore';
+import { useNavigation } from '@react-navigation/native';
 
-interface CartFooterProps {
-  itemCount: number;
-  totalPrice: number;
-  onPress: () => void;
-  lastItemImage?: string;
-}
+const CartFooter: React.FC = () => {
+  const navigation = useNavigation<any>();
+  const cartItems = useCartStore((state) => state.cartItems);
+  const getCartItemCount = useCartStore((state) => state.getCartItemCount);
+  const getCartTotalPrice = useCartStore((state) => state.getCartTotalPrice);
 
-const CartFooter: React.FC<CartFooterProps> = ({ itemCount, totalPrice, onPress, lastItemImage }) => {
+  const itemCount = getCartItemCount();
+  const totalPrice = getCartTotalPrice();
+
   if (itemCount === 0) return null;
+
+  const lastItemImage = cartItems.length > 0 ? cartItems[cartItems.length - 1].image_url : undefined;
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.content} onPress={onPress} activeOpacity={0.9}>
+      <TouchableOpacity style={styles.content} onPress={() => navigation.navigate('Cart')} activeOpacity={0.9}>
         <View style={styles.leftSide}>
           <Text style={styles.deliveryText}>
             Add ₹{Math.max(0, 500 - totalPrice)} more to unlock

@@ -183,7 +183,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
       }
     });
 
-    socketRef.current.on('connect_error', (err) => {
+    socketRef.current.on('connect_error', (err: any) => {
       console.warn('[OrderTracking] Socket connection error:', err.message);
     });
 

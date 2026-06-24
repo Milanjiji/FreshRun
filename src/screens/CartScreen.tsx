@@ -26,6 +26,7 @@ interface CartItem {
   image_url?: string;
   description?: string;
   discount_percent?: number;
+  unit?: string;
 }
 
 interface CartScreenProps {
@@ -852,7 +853,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   grayscaleOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(255,255,255,0.5)',
   },
   itemInfo: {

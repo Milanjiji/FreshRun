@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'transparent',
     zIndex: 99,
   },

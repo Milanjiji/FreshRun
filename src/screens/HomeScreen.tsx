@@ -9,6 +9,7 @@ import {
   Image,
   TextInput,
   Dimensions,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import io from 'socket.io-client';
@@ -22,6 +23,8 @@ import { storage } from '../utils/storage';
 import { calculateDistance, estimateDeliveryTime, formatDeliveryTime } from '../utils/distance';
 import { getOptimizedImageUrl } from '../utils/image';
 import { TopCropImage } from '../components/TopCropImage';
+import CartFooter from '../components/CartFooter';
+import ActiveOrderWidget from '../components/ActiveOrderWidget';
 
 
 interface HomeScreenProps {
@@ -51,8 +54,23 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isVeg, setIsVeg] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [showDebugMap, setShowDebugMap] = useState(false);
   const [avgDeliveryTime, setAvgDeliveryTime] = useState<number>(20);
+
+  const scrollY = useRef(new Animated.Value(0)).current;
+
+  const searchY = scrollY.interpolate({
+    inputRange: [0, 80],
+    outputRange: [80, 0],
+    extrapolate: 'clamp',
+  });
+
+  const categoryY = scrollY.interpolate({
+    inputRange: [0, 270],
+    outputRange: [330, 60],
+    extrapolate: 'clamp',
+  });
 
   const socketRef = useRef<any>(null);
   const bannerScrollRef = useRef<ScrollView>(null);
@@ -305,6 +323,45 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
+  const handleFilterPress = (filter: string) => {
+    if (activeFilter === filter) {
+      setActiveFilter(null);
+      if (filter === "Pure Veg") {
+        setIsVeg(false);
+      }
+    } else {
+      setActiveFilter(filter);
+      if (filter === "Pure Veg") {
+        setIsVeg(true);
+      }
+    }
+  };
+
+  const getFilteredStores = () => {
+    let result = [...stores];
+
+    if (activeFilter === "Fast Delivery") {
+      result.sort((a, b) => (a.deliveryTime || 0) - (b.deliveryTime || 0));
+    } else if (activeFilter === "Offers") {
+      result = result.filter(store => {
+        const storeProducts = products.filter(p => p.store_id === store.id);
+        const maxDiscount = storeProducts.reduce((max, p) => Math.max(max, p.discount_percent || 0), 0);
+        const displayDiscount = store.max_discount || maxDiscount;
+        return displayDiscount > 0;
+      });
+      result.sort((a, b) => {
+        const getDiscount = (s: any) => {
+          const storeProducts = products.filter(p => p.store_id === s.id);
+          const maxDiscount = storeProducts.reduce((max, p) => Math.max(max, p.discount_percent || 0), 0);
+          return s.max_discount || maxDiscount;
+        };
+        return getDiscount(b) - getDiscount(a);
+      });
+    }
+
+    return result;
+  };
+
 
   if (showDebugMap) {
     return <DebugMapScreen onBack={() => setShowDebugMap(false)} />;
@@ -314,45 +371,29 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
       
-      <HomeHeader 
-        userData={userData} 
-        avgTime={avgDeliveryTime}
-        onProfilePress={onProfilePress}
-        onAddressPress={onAddressPress}
-        onProfileLongPress={() => setShowDebugMap(true)}
-      />
-
-      <ScrollView 
+      <Animated.ScrollView 
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[0]}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
       >
-        {/* Sticky Section: Search Bar + Category Pills */}
-        <View style={styles.stickySection}>
+        <View style={{ height: 80, overflow: 'hidden' }}>
+          <HomeHeader 
+            userData={userData} 
+            avgTime={avgDeliveryTime}
+            onProfilePress={onProfilePress}
+            onAddressPress={onAddressPress}
+            onProfileLongPress={() => setShowDebugMap(true)}
+          />
+        </View>
 
-          {/* Search Row */}
-          <View style={styles.searchRow}>
-            <View style={styles.searchContainer}>
-              <Icon name="search-outline" size={20} color={Colors.primary} />
-              <TextInput 
-                placeholder="Search for 'Pizza'" 
-                style={styles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-            </View>
+        {/* Spacer for search bar (H2 = 60) */}
+        <View style={{ height: 60, backgroundColor: Colors.primary }} />
 
-            <TouchableOpacity 
-              style={[styles.vegToggle, isVeg && styles.vegToggleActive]}
-              onPress={() => setIsVeg(!isVeg)}
-            >
-              <Text style={[styles.vegText, isVeg && styles.vegTextActive]}>VEG</Text>
-              <View style={[styles.toggleTrack, isVeg && styles.toggleTrackActive]}>
-                <View style={[styles.toggleThumb, isVeg && styles.toggleThumbActive]} />
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Dynamic Banners Carousel (Moved here between search and tabs) */}
+        {/* Dynamic Banners Carousel (Now inside a container with primary background to match) */}
+        <View style={{ backgroundColor: Colors.primary }}>
           <View style={styles.bannerSection}>
             <ScrollView 
               ref={bannerScrollRef}
@@ -388,35 +429,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
               )}
             </ScrollView>
           </View>
-
-          {/* Category Tabs */}
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false} 
-            contentContainerStyle={styles.pillsContainer}
-          >
-            {categories.map((cat) => {
-              const isActive = selectedCategory === cat.id;
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[styles.pillBtn, isActive && styles.pillBtnActive]}
-                  onPress={() => setSelectedCategory(cat.id)}
-                  activeOpacity={0.75}
-                >
-                  <Icon 
-                    name={cat.icon} 
-                    size={22} 
-                    color={isActive ? Colors.white : 'rgba(255,255,255,0.5)'} 
-                  />
-                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
-                    {cat.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
         </View>
+
+        {/* Spacer for Category Pills (H4 = 64) with bottom rounded corners */}
+        <View style={{ height: 64, backgroundColor: Colors.primary, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 }} />
 
         {/* Circular Products (Whats on your mind) */}
         <View style={styles.mindSection}>
@@ -465,11 +481,18 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             showsHorizontalScrollIndicator={false} 
             contentContainerStyle={styles.filterScroll}
           >
-            {filters.map((filter, index) => (
-              <TouchableOpacity key={index} style={styles.filterChip}>
-                <Text style={styles.filterText}>{filter}</Text>
-              </TouchableOpacity>
-            ))}
+            {filters.map((filter, index) => {
+              const isActive = activeFilter === filter;
+              return (
+                <TouchableOpacity 
+                  key={index} 
+                  style={[styles.filterChip, isActive && styles.filterChipActive]}
+                  onPress={() => handleFilterPress(filter)}
+                >
+                  <Text style={[styles.filterText, isActive && styles.filterTextActive]}>{filter}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
         </View>
 
@@ -482,8 +505,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
           {loading ? (
             <View style={{ padding: 20 }}><Text>Loading stores...</Text></View>
-          ) : stores.length > 0 ? (
-            stores.map((store) => {
+          ) : getFilteredStores().length > 0 ? (
+            getFilteredStores().map((store) => {
               const storeProducts = products.filter(p => p.store_id === store.id);
               const maxDiscount = storeProducts.reduce((max, p) => Math.max(max, p.discount_percent || 0), 0);
               const displayDiscount = store.max_discount || maxDiscount;
@@ -545,7 +568,73 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             <Text style={styles.noData}>No stores found in this category</Text>
           )}
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
+
+      {/* Absolute Positioned Sticky SearchBar */}
+      <Animated.View style={[styles.absoluteSearchBar, { transform: [{ translateY: searchY }] }]}>
+        <View style={[styles.searchRow, { marginBottom: 0 }]}>
+          <View style={styles.searchContainer}>
+            <Icon name="search-outline" size={20} color={Colors.primary} />
+            <TextInput 
+              placeholder="Search for 'Pizza'" 
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </View>
+
+          <TouchableOpacity 
+            style={[styles.vegToggle, isVeg && styles.vegToggleActive]}
+            onPress={() => {
+              const nextVeg = !isVeg;
+              setIsVeg(nextVeg);
+              if (nextVeg) {
+                setActiveFilter("Pure Veg");
+              } else if (activeFilter === "Pure Veg") {
+                setActiveFilter(null);
+              }
+            }}
+          >
+            <Text style={[styles.vegText, isVeg && styles.vegTextActive]}>VEG</Text>
+            <View style={[styles.toggleTrack, isVeg && styles.toggleTrackActive]}>
+              <View style={[styles.toggleThumb, isVeg && styles.toggleThumbActive]} />
+            </View>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
+      {/* Absolute Positioned Sticky CategoryTabs */}
+      <Animated.View style={[styles.absoluteCategoryTabs, { transform: [{ translateY: categoryY }] }]}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          contentContainerStyle={styles.pillsContainer}
+        >
+          {categories.map((cat) => {
+            const isActive = selectedCategory === cat.id;
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                style={[styles.pillBtn, isActive && styles.pillBtnActive]}
+                onPress={() => setSelectedCategory(cat.id)}
+                activeOpacity={0.75}
+              >
+                <Icon 
+                  name={cat.icon} 
+                  size={22} 
+                  color={isActive ? Colors.white : 'rgba(255,255,255,0.5)'} 
+                />
+                <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </Animated.View>
+
+      <CartFooter />
+      <ActiveOrderWidget />
     </SafeAreaView>
   );
 };
@@ -555,13 +644,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
+  absoluteSearchBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  absoluteCategoryTabs: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 64,
+    backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    zIndex: 10,
+  },
   // ── Category Pills ──────────────────────────────────────────────
   pillsContainer: {
     flexDirection: 'row',
     paddingLeft: 20,
     paddingRight: 20,
     paddingTop: 5,
-    paddingBottom: 8,
+    paddingBottom: 24,
     gap: 30,
   },
   pillBtn: {
@@ -724,10 +834,17 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
     marginRight: 10,
   },
+  filterChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
   filterText: {
     fontSize: 13,
     fontFamily: Fonts.medium,
     color: '#333',
+  },
+  filterTextActive: {
+    color: '#fff',
   },
   storeListContainer: {
     marginTop: 10,
@@ -852,7 +969,7 @@ const styles = StyleSheet.create({
     marginRight: 20,
   },
   unserviceableOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(255,255,255,0.7)',
     alignItems: 'center',
     justifyContent: 'center',

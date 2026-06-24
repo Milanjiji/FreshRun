@@ -10,6 +10,8 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
+import { useOrderStore } from '../store/useOrderStore';
+import { useNavigation } from '@react-navigation/native';
 
 interface ActiveOrder {
   id: string | number;
@@ -18,11 +20,6 @@ interface ActiveOrder {
   store_name?: string;
   created_at?: string;
   total_amount?: number | string;
-}
-
-interface ActiveOrderWidgetProps {
-  orders: ActiveOrder[];
-  onOrderPress: (orderId: string) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -50,9 +47,15 @@ const getStatusLabel = (status?: string) => {
   return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
 };
 
-const ActiveOrderWidget: React.FC<ActiveOrderWidgetProps> = ({ orders, onOrderPress }) => {
-  // Never show declined orders in the widget
-  const visibleOrders = orders.filter(o => o.status !== 'declined');
+const ActiveOrderWidget: React.FC = () => {
+  const navigation = useNavigation<any>();
+  const activeOrders = useOrderStore((state) => state.activeOrders);
+  const setSelectedTrackingOrderId = useOrderStore((state) => state.setSelectedTrackingOrderId);
+
+  // Filter live uncompleted orders
+  const visibleOrders = activeOrders.filter(
+    (o) => !o.is_completed && o.status !== 'delivered' && o.status !== 'declined'
+  );
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -116,7 +119,10 @@ const ActiveOrderWidget: React.FC<ActiveOrderWidgetProps> = ({ orders, onOrderPr
         <TouchableOpacity
           style={styles.body}
           activeOpacity={0.75}
-          onPress={() => onOrderPress(String(currentOrder.id))}
+          onPress={() => {
+            setSelectedTrackingOrderId(String(currentOrder.id));
+            navigation.navigate('OrderTracking', { orderId: String(currentOrder.id) });
+          }}
         >
           <Text style={styles.storeName} numberOfLines={1}>
             {currentOrder.store_name || 'Your Order'}

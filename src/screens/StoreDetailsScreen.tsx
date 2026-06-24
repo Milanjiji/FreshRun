@@ -16,6 +16,7 @@ import { API_BASE_URL } from '../config/api';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { getOptimizedImageUrl } from '../utils/image';
+import CartFooter from '../components/CartFooter';
 
 interface StoreDetailsScreenProps {
   store: any;
@@ -351,6 +352,7 @@ const StoreDetailsScreen: React.FC<StoreDetailsScreenProps> = ({
           </View>
         </ScrollView>
       </View>
+      <CartFooter />
     </SafeAreaView>
   );
 };

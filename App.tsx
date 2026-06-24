@@ -1,4 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { RootNavigator } from './src/navigation/RootNavigator';
+import { useAuthStore } from './src/store/useAuthStore';
+import { useCartStore } from './src/store/useCartStore';
+import { useOrderStore } from './src/store/useOrderStore';
+import { useSettingsStore } from './src/store/useSettingsStore';
 import {
   StyleSheet,
   View,
@@ -168,28 +174,31 @@ const originalFetch = (globalThis as any).fetch;
 };
 
 function App() {
+  const { 
+    userToken, 
+    userData, 
+    hasLocation, 
+    setToken, 
+    setUserData, 
+    setHasLocation, 
+    setLocationData,
+    setIsSelectingLocation,
+    logout
+  } = useAuthStore();
 
-  const [userToken, setUserToken] = useState<string | null>(null);
-  const [userData, setUserData] = useState<any>(null);
-  // Start as true – we flip it to false only after Firebase resolves the auth
-  // state (inside onIdTokenChanged). This prevents the login screen from
-  // flashing while Firebase is restoring an existing session on app open.
+  const { cartItems, setCartItems } = useCartStore();
+  const { activeOrders, setActiveOrders, upsertActiveOrder, removeActiveOrder, setSelectedTrackingOrderId } = useOrderStore();
+  const { appSettings, setAppSettings } = useSettingsStore();
+
   const [loading, setLoading] = useState(true);
-  // True while we are resolving address/profile state immediately after login.
   const [postLoginLoading, setPostLoginLoading] = useState(false);
   const authResolved = React.useRef(false);
 
-  // Debounced versions of userToken and userData.id.
-  // Firebase fires onIdTokenChanged TWICE on cold-start (once from local cache,
-  // once after server validation). Without debouncing, every effect that depends
-  // on [userToken, userData?.id] runs twice: FCM setup, socket, fetchActiveOrder.
-  // We debounce by 350 ms – that's long enough for both fires to settle, but
-  // short enough that the user never notices.
+  // Debounced versions of userToken and userData.id to prevent duplicate triggers
   const [stableToken, setStableToken] = useState<string | null>(null);
   const [stableUserId, setStableUserId] = useState<string | null>(null);
   const debounceTokenTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keep stableToken / stableUserId in sync with userToken / userData, debounced.
   useEffect(() => {
     if (debounceTokenTimer.current) clearTimeout(debounceTokenTimer.current);
     debounceTokenTimer.current = setTimeout(() => {
@@ -201,30 +210,7 @@ function App() {
     };
   }, [userToken, userData?.id]);
 
-  // Update locationData whenever userData changes (e.g. address switch).
-  // Uses a functional setState so it only triggers a re-render (and therefore
-  // a HomeScreen re-fetch) when the COORDINATES actually change — not on every
-  // userData reference change or when only metadata like isFromAddress differs.
-  useEffect(() => {
-    if (userData?.currentAddressLatitude && userData?.currentAddressLongitude) {
-      const newLat = parseFloat(userData.currentAddressLatitude);
-      const newLng = parseFloat(userData.currentAddressLongitude);
-      const newAddressId = userData.currentAddressId;
-      setLocationData(prev => {
-        if (prev?.latitude === newLat && prev?.longitude === newLng) {
-          // Same coordinates — return existing object reference so React
-          // sees no change and HomeScreen does not re-fetch.
-          return prev;
-        }
-        console.log('[App] Address-based location updated:', { lat: newLat, lng: newLng });
-        return { latitude: newLat, longitude: newLng, isFromAddress: true, addressId: newAddressId };
-      });
-    }
-  }, [userData?.id, userData?.currentAddressId, userData?.currentAddressLatitude, userData?.currentAddressLongitude]);
-
-  // Firebase Auth & Token Refresh Logic
-  // IMPORTANT: setLoading(false) is called here – AFTER Firebase first resolves
-  // the auth state – so we never briefly show the login screen on app open.
+  // Firebase Auth state listener
   useEffect(() => {
     const safetyTimer = setTimeout(() => {
       if (!authResolved.current) {
@@ -236,15 +222,11 @@ function App() {
     const unsubscribe = auth().onIdTokenChanged(async (user) => {
       console.log('[AuthTrace][Startup] onIdTokenChanged triggered. User present:', !!user);
       if (user) {
-        // User is signed in or token refreshed
         try {
           const idToken = await user.getIdToken();
-          console.log('[AuthTrace][Startup] New ID Token acquired from Firebase SDK');
-          
-          setUserToken(idToken);
+          setToken(idToken);
           storage.setItem('userToken', idToken);
           
-          // Re-load userData from storage if it exists
           const currentData = storage.getObject<any>('userData');
           if (currentData) {
             setUserData(currentData);
@@ -253,11 +235,10 @@ function App() {
             }
           }
         } catch (e) {
-          console.error('[AuthTrace][Startup] Error getting ID token from Firebase SDK:', e);
+          console.error('[AuthTrace][Startup] Error getting ID token:', e);
           const cachedToken = storage.getString('userToken');
           if (cachedToken) {
-            console.log('[AuthTrace][Startup] Startup recovery: successfully restored session from MMKV cache due to network failure.');
-            setUserToken(cachedToken);
+            setToken(cachedToken);
             const currentData = storage.getObject<any>('userData');
             if (currentData) {
               setUserData(currentData);
@@ -266,21 +247,16 @@ function App() {
               }
             }
           } else {
-            console.log('[AuthTrace][Startup] Startup recovery failed: no cached token. Routing to Login.');
-            setUserToken(null);
+            setToken(null);
           }
         }
       } else {
-        // User is signed out
-        console.log('[AuthTrace][Startup] User is signed out on Firebase SDK');
-        setUserToken(null);
+        setToken(null);
         setUserData(null);
         storage.removeItem('userToken');
         storage.removeItem('userData');
       }
 
-      // Hide the splash/loading screen only after the first auth resolution.
-      // This is the correct place to do it – not in checkAppState().
       if (!authResolved.current) {
         authResolved.current = true;
         setLoading(false);
@@ -293,50 +269,73 @@ function App() {
     };
   }, []);
 
-  const [hasLocation, setHasLocation] = useState(false);
-  const [locationData, setLocationData] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [isSelectingLocation, setIsSelectingLocation] = useState(false);
-  const [showAccount, setShowAccount] = useState(false);
-  const [selectedStore, setSelectedStore] = useState<any>(null);
-  const [cartItems, setCartItems] = useState<any[]>([]);
-  const [showCart, setShowCart] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
-  const [showOrderConfirming, setShowOrderConfirming] = useState(false);
-  const [showOrderTracking, setShowOrderTracking] = useState(false);
-  const [showInfo, setShowInfo] = useState<InfoType | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
-  const [preAttachedHelpOrder, setPreAttachedHelpOrder] = useState<any>(null);
-  const [selectedTicketId, setSelectedTicketId] = useState<string | number | null>(null);
-  const [isAddingNewAddress, setIsAddingNewAddress] = useState(false);
-  // Multi-order support: all non-completed active orders for this user
-  const [activeOrders, setActiveOrders] = useState<any[]>([]);
-  const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string | null>(null);
-  const [promotionalBannerData, setPromotionalBannerData] = useState<{ maxPrice?: number, title?: string, imageUrl?: string } | null>(null);
+  // Sync settings and location on load
+  useEffect(() => {
+    const checkAppState = async () => {
+      try {
+        const currentData = storage.getObject<any>('userData');
+        if (currentData && (currentData.currentAddressId || currentData.addressLine)) {
+          setHasLocation(true);
+          if (currentData.currentAddressLatitude && currentData.currentAddressLongitude) {
+             setLocationData({
+                latitude: parseFloat(currentData.currentAddressLatitude),
+                longitude: parseFloat(currentData.currentAddressLongitude)
+             });
+          }
+        } else {
+          const savedLocation = storage.getObject<{ latitude: number; longitude: number }>('locationData');
+          let permissionGranted = false;
+          if (Platform.OS === 'ios') {
+            permissionGranted = !!savedLocation;
+          } else {
+            permissionGranted = await PermissionsAndroid.check(
+              PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+            );
+          }
 
-  // Helper: upsert an order into activeOrders (add if new, update if existing)
-  const upsertActiveOrder = (order: any) => {
-    setActiveOrders(prev => {
-      const idx = prev.findIndex(o => String(o.id) === String(order.id));
-      if (idx === -1) return [order, ...prev];
-      const updated = [...prev];
-      updated[idx] = order;
-      return updated;
+          if (savedLocation && permissionGranted) {
+            setLocationData(savedLocation);
+            setHasLocation(true);
+          } else if (savedLocation) {
+            setLocationData(savedLocation);
+          }
+        }
+
+        const savedCart = storage.getObject<any[]>('cartItems');
+        if (savedCart) {
+          setCartItems(savedCart);
+        }
+      } catch (e) {
+        console.error('Failed to load app state', e);
+      }
+    };
+
+    checkAppState();
+  }, []);
+
+  // Proactive token refresh when app transitions to active
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      if (nextAppState === 'active') {
+        try {
+          const currentUser = auth().currentUser;
+          if (currentUser) {
+            const freshToken = await currentUser.getIdToken(true);
+            if (freshToken) {
+              setToken(freshToken);
+              storage.setItem('userToken', freshToken);
+            }
+          }
+        } catch (err) {
+          console.warn('[AuthTrace][Foreground] Proactive session refresh failed:', err);
+        }
+      }
     });
-  };
 
-  // Helper: remove an order from activeOrders by id
-  const removeActiveOrder = (orderId: string | number) => {
-    setActiveOrders(prev => prev.filter(o => String(o.id) !== String(orderId)));
-  };
-  const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<number>(0);
-  const [checkoutDeliveryFee, setCheckoutDeliveryFee] = useState<number>(0);
-  const [checkoutDeliveryTip, setCheckoutDeliveryTip] = useState<number>(0);
-  const [checkoutLateNightFee, setCheckoutLateNightFee] = useState<number>(0);
-  const [checkoutRainyFee, setCheckoutRainyFee] = useState<number>(0);
-  const [checkoutExtraStoreCharge, setCheckoutExtraStoreCharge] = useState<number>(0);
-  const [checkoutIsSelfPickup, setCheckoutIsSelfPickup] = useState<boolean>(false);
-  const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<'cod' | 'online'>('cod');
-  const [appSettings, setAppSettings] = useState<any>(null);
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   // Fetch Global App Settings
   useEffect(() => {
@@ -353,8 +352,6 @@ function App() {
   }, []);
 
   // FCM Setup
-  // Uses stableToken/stableUserId (debounced) so this only runs once even when
-  // Firebase fires onIdTokenChanged twice in quick succession on app open.
   useEffect(() => {
     if (stableToken && stableUserId) {
       const initFCM = async () => {
@@ -363,20 +360,15 @@ function App() {
           if (hasPermission) {
             await createNotificationChannels();
             const fcmToken = await messaging().getToken();
-            console.log('[FCM] Token:', fcmToken);
             await registerFCMToken(stableToken, fcmToken);
             
-            // Listen for token refresh
             const unsubscribeTokenRefresh = messaging().onTokenRefresh(async newToken => {
               await registerFCMToken(stableToken, newToken);
             });
 
-            console.log('[FCM] Initializing listeners...');
             const cleanupListeners = setupFCMListeners((data) => {
-              console.log('[FCM] Callback triggered with data:', data);
               if (data?.orderId) {
                 setSelectedTrackingOrderId(data.orderId);
-                setShowOrderTracking(true);
               }
             });
 
@@ -396,215 +388,40 @@ function App() {
       };
     }
   }, [stableToken, stableUserId]);
-  // Cart logic
-  const proceedAddToCart = (product: any) => {
-    setCartItems(prev => {
-      const existing = prev.find(item => item.id === product.id);
-      let newCart;
-      if (existing) {
-        newCart = prev.map(item => 
-          item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-        );
-      } else {
-        newCart = [...prev, { ...product, quantity: 1 }];
-      }
-      storage.setItem('cartItems', newCart);
-      return newCart;
-    });
-  };
-
-  const addToCart = (product: any) => {
-    const isDifferentStore = cartItems.length > 0 && cartItems.some(item => String(item.store_id || item.storeId) !== String(product.store_id || product.storeId));
-    if (isDifferentStore) {
-      const charge = appSettings?.extra_store_charge || 20;
-      Alertt.alert(
-        'Different Store',
-        `Adding items from multiple stores will add an extra store charge of ₹${charge} to your delivery fee.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Add Item', onPress: () => proceedAddToCart(product) }
-        ]
-      );
-    } else {
-      proceedAddToCart(product);
-    }
-  };
-  const updateQuantity = (id: string, delta: number) => {
-    setCartItems(prev => {
-      const newCart = prev.map(item => {
-        if (item.id === id) {
-          const newQty = Math.max(0, item.quantity + delta);
-          return { ...item, quantity: newQty };
-        }
-        return item;
-      }).filter(item => item.quantity > 0);
-      storage.setItem('cartItems', newCart);
-      return newCart;
-    });
-  };
-
-  const clearCart = () => {
-    storage.removeItem('cartItems');
-    setCartItems([]);
-  };
-
-  const cartItemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-  
-  // Update to use discounted price for footer total
-  const cartTotalPrice = cartItems.reduce((sum, item) => {
-    const discount = item.discount_percent || 0;
-    const discountedPrice = item.price * (1 - discount / 100);
-    return sum + (discountedPrice * item.quantity);
-  }, 0);
-
-  const lastItemImage = cartItems.length > 0 ? cartItems[cartItems.length - 1].image_url : undefined;
-
-  // Check login and location state on start.
-  // NOTE: We intentionally do NOT call setLoading(false) here anymore.
-  // Loading is controlled by onIdTokenChanged so there's no race condition
-  // where the login screen flashes before Firebase restores the session.
-  useEffect(() => {
-    const checkAppState = async () => {
-      try {
-        // 1. Check if user already has a saved address in their profile
-        const currentData = storage.getObject<any>('userData');
-        if (currentData && (currentData.currentAddressId || currentData.addressLine)) {
-          setHasLocation(true);
-          // Populate locationData from user's saved address if available
-          if (currentData.currentAddressLatitude && currentData.currentAddressLongitude) {
-             setLocationData({
-                latitude: parseFloat(currentData.currentAddressLatitude),
-                longitude: parseFloat(currentData.currentAddressLongitude)
-             });
-          }
-        } else {
-          // 2. Otherwise, check Location Data and Permission
-          const savedLocation = storage.getObject<{ latitude: number; longitude: number }>('locationData');
-          
-          let permissionGranted = false;
-          if (Platform.OS === 'ios') {
-            permissionGranted = !!savedLocation;
-          } else {
-            permissionGranted = await PermissionsAndroid.check(
-              PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-            );
-          }
-
-          if (savedLocation && permissionGranted) {
-            setLocationData(savedLocation);
-            setHasLocation(true);
-          } else if (savedLocation) {
-            setLocationData(savedLocation);
-          }
-        }
-
-        // 3. Load Cart
-        const savedCart = storage.getObject<any[]>('cartItems');
-        if (savedCart) {
-          setCartItems(savedCart);
-        }
-      } catch (e) {
-        console.error('Failed to load app state', e);
-      }
-      // Do NOT call setLoading(false) here – onIdTokenChanged handles it.
-    };
-
-    checkAppState();
-  }, []);
-
-  // Proactive token refresh when app transitions back to the foreground (active state)
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', async (nextAppState) => {
-      if (nextAppState === 'active') {
-        console.log('[AuthTrace][Foreground] App moved to foreground - proactively refreshing session...');
-        try {
-          const currentUser = auth().currentUser;
-          if (currentUser) {
-            const freshToken = await currentUser.getIdToken(true);
-            if (freshToken) {
-              setUserToken(freshToken);
-              storage.setItem('userToken', freshToken);
-              console.log('[AuthTrace][Foreground] Session successfully renewed proactively on foreground.');
-            }
-          }
-        } catch (err) {
-          console.warn('[AuthTrace][Foreground] Proactive session refresh failed:', err);
-        }
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
 
   const socketRef = useRef<any>(null);
 
-  // Socket.io initialization.
-  // Uses stableToken/stableUserId (debounced) to prevent double-connect on app open.
+  // Socket.io initialization
   useEffect(() => {
     if (stableToken && stableUserId) {
-      // Connect to socket server
       socketRef.current = io(API_BASE_URL);
 
       socketRef.current.on('connect', () => {
         console.log('[Socket] Connected to server');
-        // Join rooms for all active orders
-        setActiveOrders(current => {
-          current.forEach(o => socketRef.current?.emit('join_room', `order_${o.id}`));
-          return current;
-        });
-        // Join rooms for all stores in cart
-        const storeIds = [...new Set(cartItems.map(item => String(item.store_id || (item as any).storeId)).filter(id => id && id !== 'undefined'))];
+        activeOrders.forEach(o => socketRef.current?.emit('join_room', `order_${o.id}`));
+        const storeIds = [...new Set(cartItems.map(item => String(item.store_id || item.storeId)).filter(id => id && id !== 'undefined'))];
         storeIds.forEach(id => socketRef.current?.emit('join_room', `store_${id}`));
       });
 
       socketRef.current.on('product_updated', (updatedProduct: any) => {
-        console.log('[Socket] Product updated:', updatedProduct.id);
-        setCartItems(prev => {
-          const updatedCart = prev.map(item =>
-            item.id === updatedProduct.id ? { ...item, ...updatedProduct } : item
-          );
-          storage.setItem('cartItems', updatedCart);
-          return updatedCart;
-        });
-      });
-
-      socketRef.current.on('store_updated', () => {
-        setCartItems(prev => [...prev]);
+        const updatedCart = cartItems.map(item =>
+          item.id === updatedProduct.id ? { ...item, ...updatedProduct } : item
+        );
+        setCartItems(updatedCart);
+        storage.setItem('cartItems', updatedCart);
       });
 
       socketRef.current.on('order_status_changed', (updatedOrder: any) => {
-        console.log('[Socket] Order status update for #' + updatedOrder.id + ':', updatedOrder.status);
-
         if (updatedOrder?.status === 'delivered' || updatedOrder?.is_completed) {
           removeActiveOrder(updatedOrder.id);
           storage.removeItem(`activeOrderObject_${stableUserId}_${updatedOrder.id}`);
-          // If we were tracking this specific order, go back to home
-          setSelectedTrackingOrderId(prev => {
-            if (String(prev) === String(updatedOrder.id)) {
-              setShowOrderTracking(false);
-              return null;
-            }
-            return prev;
-          });
           return;
         }
 
         if (updatedOrder?.status === 'declined') {
-          // Auto-acknowledge and clean up
           removeActiveOrder(updatedOrder.id);
           storage.removeItem(`activeOrderObject_${stableUserId}_${updatedOrder.id}`);
-          // If we were tracking this specific order, go back to home
-          setSelectedTrackingOrderId(prev => {
-            if (String(prev) === String(updatedOrder.id)) {
-              setShowOrderTracking(false);
-              return null;
-            }
-            return prev;
-          });
-
-          // PATCH backend in the background to acknowledge
+          
           fetch(`${API_BASE_URL}/orders/${updatedOrder.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stableToken}` },
@@ -639,7 +456,7 @@ function App() {
     }
   }, [activeOrders.length]);
 
-  // Sync all active orders from backend on mount/login
+  // Sync active orders on mount/login
   useEffect(() => {
     if (stableToken && stableUserId) {
       const fetchActiveOrders = async () => {
@@ -651,13 +468,9 @@ function App() {
           if (data.success && Array.isArray(data.orders)) {
             const liveOrders = data.orders;
 
-            // Auto-acknowledge and clean up any declined orders
             liveOrders.forEach((o: any) => {
               if (o.status === 'declined') {
-                console.log(`[OrderSync] Auto-acknowledging declined order ${o.id}`);
-                // 1. Remove from local storage
                 storage.removeItem(`activeOrderObject_${stableUserId}_${o.id}`);
-                // 2. Mark as completed on backend immediately
                 fetch(`${API_BASE_URL}/orders/${o.id}`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stableToken}` },
@@ -666,7 +479,6 @@ function App() {
               }
             });
 
-            // Filter out all declined orders completely from the widget and active list
             const displayOrders = liveOrders.filter((o: any) => o.status !== 'declined');
             setActiveOrders(displayOrders);
           }
@@ -678,401 +490,10 @@ function App() {
     }
   }, [stableToken, stableUserId]);
 
-  const handleLoginSuccess = async (token: string, user: any) => {
-    // Show the loading screen while we resolve everything – prevents flickering
-    // to the wrong screen (e.g. LocationScreen) before we know the user's state.
-    setPostLoginLoading(true);
-
-    try {
-      setUserToken(token);
-      setUserData(user);
-
-      // --- 1. Resolve address / location state ---
-      // The login response already includes currentAddressId and coordinates.
-      // If the user has a saved address we can skip the addresses API call entirely.
-      if (user?.currentAddressId) {
-        // User already has a selected address.
-        // Do NOT set locationData here — the address watch effect above will
-        // set it correctly when setUserData(user) is processed below, avoiding
-        // a duplicate locationData update that would cause HomeScreen to fetch twice.
-        setHasLocation(true);
-        setIsSelectingLocation(false);
-      } else {
-        // No current address — fetch the full address list to decide what to show.
-        try {
-          const res = await fetch(`${API_BASE_URL}/user/addresses`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const data = await res.json();
-          if (data.success && data.addresses && data.addresses.length > 0) {
-            // Has saved addresses but none selected → let them pick one.
-            setIsSelectingLocation(true);
-          }
-          // else: no addresses at all → hasLocation stays false → LocationScreen shown
-        } catch (e) {
-          console.error('[Login] Error fetching addresses:', e);
-        }
-      }
-
-      // Active orders are fetched by the fetchActiveOrders effect after stableToken is set.
-    } finally {
-      setPostLoginLoading(false);
-    }
-  };
-
-  const handleLocationSuccess = (location: { latitude: number; longitude: number }) => {
-    storage.setItem('locationData', location);
-    setLocationData(location);
-    setHasLocation(true);
-  };
-
-  const handleProfileSuccess = (updatedUser: any) => {
-    storage.setItem('userData', updatedUser);
-    setUserData(updatedUser);
-  };
-
-  const handleBackFromProfile = () => {
-    setHasLocation(false);
-  };
-
-  const handleLogout = () => {
-    auth().signOut();
-    storage.removeItem('userToken');
-    storage.removeItem('userData');
-    storage.removeItem('locationData');
-    setUserToken(null);
-    setUserData(null);
-    setHasLocation(false);
-    setLocationData(null);
-    setShowAccount(false);
-    setActiveOrders([]);
-    setSelectedTrackingOrderId(null);
-  };
-
-  // Determine which screen to show
-  const renderContent = () => {
-    if (!userToken) {
-      return <LoginScreen onLoginSuccess={handleLoginSuccess} role="customer" />;
-    }
-
-    if (isSelectingLocation) {
-      return (
-        <AddressSelectionScreen 
-          userData={userData}
-          userToken={userToken!}
-          onBack={() => {
-            setIsSelectingLocation(false);
-            if (userData?.currentAddressId) {
-              setHasLocation(true);
-            }
-          }}
-          onAddressUpdated={(updatedUser) => {
-            setUserData(updatedUser);
-            storage.setItem('userData', updatedUser);
-            
-            // If we just selected an address and we didn't have location yet,
-            // we should set hasLocation to true so it goes to Home.
-            if (!hasLocation) {
-              setHasLocation(true);
-            }
-          }}
-          onAddNewAddress={() => {
-            setIsSelectingLocation(false);
-            setHasLocation(false);
-            setIsAddingNewAddress(true);
-          }}
-          onUseCurrentLocation={() => {
-            setIsSelectingLocation(false);
-            setHasLocation(false);
-            setIsAddingNewAddress(true);
-          }}
-        />
-      );
-    }
-
-    if (!hasLocation) {
-      return (
-        <LocationScreen 
-          onLocationSuccess={handleLocationSuccess} 
-          existingLocation={locationData}
-          onBack={isAddingNewAddress ? () => {
-            setIsAddingNewAddress(false);
-            setHasLocation(true);
-            setIsSelectingLocation(true);
-          } : undefined}
-        />
-      );
-    }
-
-    if (!userData?.isProfileComplete || isAddingNewAddress) {
-      return (
-        <UserDetailsScreen 
-          userData={isAddingNewAddress ? null : userData} 
-          userToken={userToken} 
-          locationData={locationData}
-          isAddingNewAddress={isAddingNewAddress}
-          onSuccess={(updatedUser: any) => {
-            setIsAddingNewAddress(false);
-            handleProfileSuccess(updatedUser);
-          }} 
-          onBack={() => {
-            if (isAddingNewAddress) {
-              setIsAddingNewAddress(false);
-              setIsSelectingLocation(true);
-            } else {
-              handleBackFromProfile();
-            }
-          }}
-        />
-      );
-    }
-
-    const isSecondaryScreenOpen = 
-      !!showInfo || 
-      !!selectedTicketId || 
-      showHelp || 
-      showAccount || 
-      showOrderTracking || 
-      showOrderConfirming || 
-      showPayment || 
-      showCart ||
-      !!promotionalBannerData;
-
-    return (
-      <View style={{ flex: 1 }}>
-        {/* Main View: contains HomeScreen/StoreDetailsScreen, kept mounted but hidden when secondary screen is open */}
-        <View style={[{ flex: 1 }, isSecondaryScreenOpen ? { display: 'none' } : undefined]}>
-          {/* Keep HomeScreen mounted, hide it when a store is selected */}
-          <View style={[{ flex: 1 }, selectedStore ? { display: 'none' } : undefined]}>
-            <HomeScreen 
-              userData={userData} 
-              locationData={locationData} 
-              onLogout={handleLogout} 
-              onAddressPress={() => setIsSelectingLocation(true)}
-              onProfilePress={() => setShowAccount(true)}
-              onStorePress={(store) => setSelectedStore(store)}
-              onBannerPress={(actionType, payload, imageUrl) => {
-                if (actionType === 'filter_price') {
-                  setPromotionalBannerData({ maxPrice: payload.max_price, title: payload.title, imageUrl });
-                } else if (actionType === 'store_redirect') {
-                  const storeId = payload.store_id;
-                  if (storeId) {
-                    setPostLoginLoading(true);
-                    fetch(`${API_BASE_URL}/stores/${storeId}`)
-                      .then(res => res.json())
-                      .then(data => {
-                        if (data.success && data.data) {
-                          setSelectedStore(data.data);
-                        } else {
-                          Alertt.alert("Error", "Could not load store details.");
-                        }
-                      })
-                      .catch(err => {
-                        Alertt.alert("Error", "Failed to connect to server.");
-                      })
-                      .finally(() => {
-                        setPostLoginLoading(false);
-                      });
-                  }
-                }
-              }}
-            />
-          </View>
-
-          {/* Render StoreDetailsScreen when a store is selected */}
-          {selectedStore && (
-            <StoreDetailsScreen 
-              store={selectedStore} 
-              onBack={() => setSelectedStore(null)} 
-              addToCart={addToCart}
-              cartItems={cartItems}
-              updateQuantity={updateQuantity}
-            />
-          )}
-          <CartFooter 
-            itemCount={cartItemCount} 
-            totalPrice={cartTotalPrice} 
-            onPress={() => {
-              setShowCart(true);
-            }} 
-            lastItemImage={lastItemImage}
-          />
-          
-          {/* Active Order Widget — shows all active orders, hidden when tracking screen is open */}
-          {activeOrders.filter(o => !o.is_completed && o.status !== 'delivered').length > 0 && !showOrderTracking && (
-            <ActiveOrderWidget
-              orders={activeOrders.filter(o => !o.is_completed && o.status !== 'delivered')}
-              onOrderPress={(orderId) => {
-                setSelectedTrackingOrderId(orderId);
-                setShowOrderTracking(true);
-              }}
-            />
-          )}
-        </View>
-
-        {/* Secondary Overlay Screens */}
-        {promotionalBannerData && (
-          <PromotionalFilterScreen 
-            route={{ params: promotionalBannerData }}
-            navigation={{ goBack: () => setPromotionalBannerData(null) }}
-            addToCart={addToCart}
-            cartItems={cartItems}
-            updateQuantity={updateQuantity}
-          />
-        )}
-
-        {showInfo && (
-          <InfoScreen 
-            type={showInfo}
-            onBack={() => setShowInfo(null)}
-          />
-        )}
-
-        {selectedTicketId && (
-          <TicketDetailsScreen 
-            ticketId={selectedTicketId}
-            userToken={userToken!}
-            onBack={() => {
-              setSelectedTicketId(null);
-              setShowHelp(true);
-            }}
-          />
-        )}
-
-        {showHelp && (
-          <HelpScreen 
-            userToken={userToken!}
-            preAttachedOrder={preAttachedHelpOrder}
-            onBack={() => {
-              setShowHelp(false);
-              setPreAttachedHelpOrder(null);
-              setShowAccount(true);
-            }}
-            onViewTicketDetails={(ticketId) => {
-              setShowHelp(false);
-              setSelectedTicketId(ticketId);
-            }}
-          />
-        )}
-
-        {showAccount && (
-          <AccountScreen 
-            userData={userData}
-            userToken={userToken!}
-            onBack={() => setShowAccount(false)}
-            onLogout={handleLogout}
-            onSavedAddressPress={() => {
-              setShowAccount(false);
-              setIsSelectingLocation(true);
-            }}
-            onOrderPress={(id) => {
-              setSelectedTrackingOrderId(id);
-              setShowAccount(false);
-              setShowOrderTracking(true);
-            }}
-            onInfoPress={(type) => {
-               setShowInfo(type);
-            }}
-            onHelpPress={(preAttachedOrder) => {
-              setPreAttachedHelpOrder(preAttachedOrder || null);
-              setShowAccount(false);
-              setShowHelp(true);
-            }}
-          />
-        )}
-
-
-
-        {showOrderTracking && (
-          <OrderTrackingScreen 
-            orderId={selectedTrackingOrderId}
-            activeOrder={activeOrders.find(o => String(o.id) === String(selectedTrackingOrderId)) || null}
-            userToken={userToken}
-            onHome={() => {
-              setShowOrderTracking(false);
-              setSelectedTrackingOrderId(null);
-            }}
-          />
-        )}
-
-        {showOrderConfirming && (
-          <OrderConfirmingScreen
-            cartItems={cartItems}
-            totalAmount={checkoutTotalAmount}
-            deliveryFee={checkoutDeliveryFee}
-            deliveryTip={checkoutDeliveryTip}
-            rainyFee={checkoutRainyFee}
-            lateNightFee={checkoutLateNightFee}
-            extraStoreCharge={checkoutExtraStoreCharge}
-            userData={userData}
-            locationData={locationData}
-            userToken={userToken}
-            isSelfPickup={checkoutIsSelfPickup}
-            paymentMode={checkoutPaymentMode}
-            onSuccess={(id, order) => {
-              console.log('\n✅ [OrderPlacement] STEP 5: Order placed. ID:', id);
-              upsertActiveOrder(order);
-              if (userData?.id) {
-                storage.setItem(`activeOrderObject_${userData.id}_${id}`, order);
-              }
-              setShowOrderConfirming(false);
-              setSelectedTrackingOrderId(String(id));
-              setShowOrderTracking(true);
-              clearCart();
-            }}
-            onFailure={() => {
-              setShowOrderConfirming(false);
-              setShowPayment(true);
-            }}
-          />
-        )}
-
-        {showPayment && (
-          <PaymentScreen 
-            cartItems={cartItems}
-            totalAmount={checkoutTotalAmount}
-            userData={userData}
-            userToken={userToken}
-            onBack={() => setShowPayment(false)}
-            onOrderConfirmed={(dummyId, selectedMode) => {
-              setCheckoutPaymentMode(selectedMode);
-              setShowPayment(false);
-              setShowCart(false);
-              setShowOrderConfirming(true);
-            }}
-          />
-        )}
-
-        {showCart && (
-          <CartScreen 
-            cartItems={cartItems}
-            onBack={() => setShowCart(false)}
-            updateQuantity={updateQuantity}
-            clearCart={clearCart}
-            locationAddress={userData?.address?.line1}
-            socket={socketRef.current}
-            onProceedToCheckout={(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee, extraStoreCharge) => {
-              setCheckoutTotalAmount(total);
-              setCheckoutDeliveryFee(deliveryFee);
-              setCheckoutDeliveryTip(deliveryTip);
-              setCheckoutRainyFee(rainyFee);
-              setCheckoutLateNightFee(lateNightFee);
-              setCheckoutExtraStoreCharge(extraStoreCharge || 0);
-              setCheckoutIsSelfPickup(!!isSelfPickup);
-              setShowPayment(true);
-            }}
-          />
-        )}
-      </View>
-    );
-  };
-
   return (
     <SafeAreaProvider>
       <View style={styles.container}>
         {(loading || postLoginLoading) ? (
-          // Show splash during initial Firebase auth resolution OR
-          // while we resolve the user's address/profile state right after login.
           <LoadingTransition />
         ) : (
           <>
@@ -1083,7 +504,9 @@ function App() {
                 </Text>
               </SafeAreaView>
             )}
-            {renderContent()}
+            <NavigationContainer>
+              <RootNavigator socket={socketRef.current} />
+            </NavigationContainer>
           </>
         )}
         <CustomAlert />

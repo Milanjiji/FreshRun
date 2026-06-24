@@ -72,8 +72,8 @@ export function setupFCMListeners(onNotification: (data: any) => void) {
     try {
       // Display local notification
       await notifee.displayNotification({
-        title: remoteMessage.notification?.title || remoteMessage.data?.title || 'Order Update',
-        body: remoteMessage.notification?.body || remoteMessage.data?.body || '',
+        title: remoteMessage.notification?.title || (remoteMessage.data?.title as string) || 'Order Update',
+        body: remoteMessage.notification?.body || (remoteMessage.data?.body as string) || '',
         android: {
           channelId: 'order_updates',
           pressAction: { id: 'default' },

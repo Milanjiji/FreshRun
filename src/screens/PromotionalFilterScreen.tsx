@@ -7,6 +7,7 @@ import { Fonts } from '../theme/typography';
 import { API_BASE_URL } from '../config/api';
 import { getOptimizedImageUrl } from '../utils/image';
 import { TopCropImage } from '../components/TopCropImage';
+import CartFooter from '../components/CartFooter';
 
 interface PromotionalFilterScreenProps {
   route: any;
@@ -256,6 +257,7 @@ const PromotionalFilterScreen: React.FC<PromotionalFilterScreenProps> = ({
           </View>
         </ScrollView>
       </View>
+      <CartFooter />
     </SafeAreaView>
   );
 };
