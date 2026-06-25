@@ -67,6 +67,7 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
     userToken, 
     userData, 
     hasLocation, 
+    locationData,
     isSelectingLocation, 
     isAddingNewAddress,
     setToken,
@@ -106,10 +107,18 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
                 setUserData(user);
                 
                 if (user?.currentAddressId) {
+                  // Returning user with a saved address — go straight to Home
                   setHasLocation(true);
                   setIsSelectingLocation(false);
-                } else {
+                } else if (user?.isProfileComplete) {
+                  // Existing user (profile complete) but no current address set —
+                  // send them to LocationScreen then AddressSelection to pick one
                   setIsSelectingLocation(true);
+                } else {
+                  // Brand new user — isSelectingLocation stays false so the
+                  // guard at line 124 never fires. Flow is:
+                  // LocationScreen → UserDetailsScreen (isProfileComplete=false)
+                  setIsSelectingLocation(false);
                 }
               }} 
             />
@@ -120,7 +129,7 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
   }
 
   // Onboarding screens presented before main App Stack
-  if (isSelectingLocation) {
+  if (isSelectingLocation && hasLocation) {
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="AddressSelection">
@@ -220,7 +229,7 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
           <HomeScreen
             {...props}
             userData={userData}
-            locationData={null}
+            locationData={locationData}
             onLogout={logout}
             onAddressPress={() => setIsSelectingLocation(true)}
             onProfilePress={() => props.navigation.navigate('Account')}
@@ -323,7 +332,7 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
             lateNightFee={props.route.params.lateNightFee}
             extraStoreCharge={props.route.params.extraStoreCharge}
             userData={userData}
-            locationData={null}
+            locationData={locationData}
             userToken={userToken}
             isSelfPickup={props.route.params.isSelfPickup}
             paymentMode={props.route.params.paymentMode}

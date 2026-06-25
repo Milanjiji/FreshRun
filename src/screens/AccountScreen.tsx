@@ -17,8 +17,8 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { Alertt } from '../components/Alertt';
-import { API_BASE_URL } from '../config/api';
-
+import api from '../utils/api';
+// API_BASE_URL is no longer needed here
 const PRIVACY_POLICY_URL = 'https://freshrun-admin.vercel.app/privacy';
 
 interface AccountScreenProps {
@@ -52,12 +52,8 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
 
   const fetchOrders = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/orders/user`, {
-        headers: {
-          'Authorization': `Bearer ${userToken}`
-        }
-      });
-      const data = await response.json();
+      const response = await api.get('/orders/user');
+      const data = response.data;
       if (data.success) {
         setOrders(data.orders || []);
       }
@@ -99,27 +95,28 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
         { 
           text: 'Delete', 
           style: 'destructive',
-          onPress: async () => {
-            try {
-              const response = await fetch(`${API_BASE_URL}/user/account`, {
-                method: 'DELETE',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${userToken}`,
-                },
-                body: JSON.stringify({ role: 'customer' }),
-              });
-              const data = await response.json();
-              if (data.success) {
-                onLogout(); // This will clear storage and sign out
-              } else {
-                Alertt.alert('Error', data.error || 'Failed to delete account');
+            onPress: async () => {
+              console.log('Attempting to delete account');
+              try {
+                const response = await api.delete('/user/account', {
+                  data: { role: 'customer' },
+                });
+                console.log('Delete account response status:', response.status);
+                // Axios returns data directly; no need to call response.json()
+                const data = response.data;
+                console.log('Delete account response data:', data);
+                if (data?.success) {
+                  console.log('Account deletion succeeded, logging out');
+                  onLogout(); // This will clear storage and sign out
+                } else {
+                  Alertt.alert('Error', data?.error || 'Failed to delete account');
+                }
+              } catch (error) {
+                console.error('Delete account error:', error);
+                const errMsg = error?.response?.data?.error || 'Something went wrong. Please try again later.';
+                Alertt.alert('Error', errMsg);
               }
-            } catch (error) {
-              console.error('Delete account error:', error);
-              Alertt.alert('Error', 'Something went wrong. Please try again later.');
             }
-          }
         }
       ]
     );

@@ -176,6 +176,7 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
   };
 
   const handleDeleteAddress = (addressId: string) => {
+    console.log('Attempting to delete address:', addressId);
     setActiveMenuId(null);
     Alertt.alert(
       'Delete Address',
@@ -189,9 +190,13 @@ const AddressSelectionScreen: React.FC<AddressSelectionScreenProps> = ({
             try {
               const response = await api.delete(`/user/addresses/${addressId}`);
               if (response.data.success) {
+                console.log('Address delete successful, refreshing list');
                 fetchAddresses();
+              } else {
+                console.warn('Address delete failed', response.data);
               }
             } catch (error: any) {
+              console.error('Error deleting address:', error);
               Alertt.alert('Error', error.response?.data?.error || 'Failed to delete address');
             }
           }

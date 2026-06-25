@@ -168,10 +168,9 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     setFetchedLocation(location);
     setCanConfirmLocation(true);
     setError(null);
-    if (mapReady) {
-      animateToLocation(location);
-    }
-  }, [animateToLocation, mapReady]);
+    // No animateToLocation call here — the useEffect below handles it
+    // once both mapReady and fetchedLocation are set, regardless of which resolves first.
+  }, []);
 
   const proceedWithLocationFetch = useCallback(async () => {
     setLoading(true);
@@ -227,6 +226,16 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
     setShowDisclosure(false);
     setError('Location permission is required to detect your location. You can still move the map pin manually.');
   };
+
+  // Animate map to the correct location whenever EITHER the map becomes ready
+  // OR the fetched location changes — whichever happens last wins.
+  // This fixes the race condition where GPS resolves before the map is ready,
+  // causing the pin to stay at the default location until the user taps Refresh.
+  useEffect(() => {
+    if (mapReady && fetchedLocation) {
+      animateToLocation(fetchedLocation);
+    }
+  }, [mapReady, fetchedLocation, animateToLocation]);
 
   useEffect(() => {
     // If we have an existing location from storage, treat it as "fetched" initially.
@@ -322,7 +331,7 @@ const LocationScreen: React.FC<LocationScreenProps> = ({ onLocationSuccess, exis
               }}
               onMapReady={() => {
                 setMapReady(true);
-                animateToLocation(fetchedLocation);
+                // Animation is handled by the useEffect watching [mapReady, fetchedLocation]
               }}
               onPanDrag={() => {
                 userMovedMapRef.current = true;

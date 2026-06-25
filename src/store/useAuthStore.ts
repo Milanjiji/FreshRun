@@ -59,6 +59,9 @@ export const useAuthStore = create<AuthState>()(
       
       logout: () => {
         auth().signOut().catch(err => console.warn('Firebase logout error:', err));
+        // Wipe ALL MMKV keys: cart, home cache, location cache, active orders, etc.
+        // This ensures no previous user's data bleeds into the next session.
+        storage.clearAll();
         set({
           userToken: null,
           userData: null,

@@ -52,7 +52,8 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
   useEffect(() => {
     const fetchExistingProfile = async () => {
       try {
-        const response = await api.get('/user/profile', {
+        console.log('Fetching existing profile...');
+      const response = await api.get('/user/profile', {
           timeout: 10000,
         });
 
@@ -73,7 +74,7 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
           // This allows the user to review their restored details and click "Save" manually.
         }
       } catch (error) {
-        console.log('No existing profile found or fetch failed:', error);
+        console.error('Error fetching existing profile:', error);
       } finally {
         setInitialLoading(false);
       }
@@ -83,6 +84,7 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
   }, []);
 
   const handleSave = async () => {
+    console.log('handleSave invoked', { isAddingNewAddress, fullName, email, addressLine, houseNumber, pincode, saveAs });
     if (!fullName.trim() || !email.trim() || !addressLine.trim() || !houseNumber.trim() || !pincode.trim()) {
       Alertt.alert('Error', 'Please fill in all required fields');
       return;
@@ -92,7 +94,7 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
     try {
       if (isAddingNewAddress) {
         const finalSaveAs = saveAs.trim() || getRandomAddressName();
-
+        console.log('Adding new address with saveAs:', finalSaveAs);
         // 1. Add as a new address entry
         const addResponse = await api.post(
           '/user/addresses',
@@ -103,25 +105,30 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
             longitude: locationData?.longitude
           }
         );
-
+        console.log('addResponse', addResponse.data);
         if (addResponse.data.success) {
           const newAddressId = addResponse.data.address.id;
-          
+          console.log('New address ID:', newAddressId);
           // 2. Select it to make it the active one
           const selectResponse = await api.post(
             '/user/addresses/select',
             { addressId: newAddressId }
           );
-
+          console.log('selectResponse', selectResponse.data);
           if (selectResponse.data.success) {
             const updatedUser = selectResponse.data.user;
+            console.log('Updated user after selecting address', updatedUser);
             storage.setItem('userData', updatedUser);
             onSuccess(updatedUser);
+          } else {
+            console.warn('Select address failed', selectResponse.data);
           }
+        } else {
+          console.warn('Add address failed', addResponse.data);
         }
       } else {
         const finalSaveAs = saveAs.trim() || (userData?.saveAs) || getRandomAddressName();
-
+        console.log('Updating profile with saveAs:', finalSaveAs);
         // Standard profile update
         const response = await api.put(
           '/user/profile',
@@ -135,14 +142,18 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
             timeout: 15000,
           }
         );
-
+        console.log('profile update response', response.data);
         if (response.data.success) {
           const updatedUser = response.data.user;
+          console.log('Updated user after profile save', updatedUser);
           storage.setItem('userData', updatedUser);
           onSuccess(updatedUser);
+        } else {
+          console.warn('Profile update failed', response.data);
         }
       }
     } catch (error: any) {
+      console.error('Error in handleSave', error);
       const message = error.response?.data?.error || 'Failed to save address';
       Alertt.alert('Error', message);
     } finally {

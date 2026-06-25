@@ -1,12 +1,14 @@
 import axios from 'axios';
 import auth from '@react-native-firebase/auth';
 import { storage } from './storage';
-import { API_BASE_URL } from '../config/api';
 
-console.log('[AuthTrace][API] Initializing centralized API client pointing to:', API_BASE_URL);
+// Hard‑coded production backend URL
+const PRODUCTION_API_URL = 'https://freshrun-backend.onrender.com';
+
+console.log('[AuthTrace][API] Initializing centralized API client pointing to:', PRODUCTION_API_URL);
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: PRODUCTION_API_URL,
   timeout: 15000,
 });
 

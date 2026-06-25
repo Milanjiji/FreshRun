@@ -232,6 +232,13 @@ function App() {
             setUserData(currentData);
             if (currentData.currentAddressId || currentData.addressLine) {
               setHasLocation(true);
+              if (currentData.currentAddressLatitude && currentData.currentAddressLongitude) {
+                setLocationData({
+                  latitude: parseFloat(currentData.currentAddressLatitude),
+                  longitude: parseFloat(currentData.currentAddressLongitude),
+                  isFromAddress: true,
+                });
+              }
             }
           }
         } catch (e) {
@@ -244,6 +251,13 @@ function App() {
               setUserData(currentData);
               if (currentData.currentAddressId || currentData.addressLine) {
                 setHasLocation(true);
+                if (currentData.currentAddressLatitude && currentData.currentAddressLongitude) {
+                  setLocationData({
+                    latitude: parseFloat(currentData.currentAddressLatitude),
+                    longitude: parseFloat(currentData.currentAddressLongitude),
+                    isFromAddress: true,
+                  });
+                }
               }
             }
           } else {
@@ -274,6 +288,8 @@ function App() {
     const checkAppState = async () => {
       try {
         const currentData = storage.getObject<any>('userData');
+        const isFullyOnboarded = currentData?.isProfileComplete && currentData?.currentAddressId;
+
         if (currentData && (currentData.currentAddressId || currentData.addressLine)) {
           setHasLocation(true);
           if (currentData.currentAddressLatitude && currentData.currentAddressLongitude) {
@@ -282,7 +298,9 @@ function App() {
                 longitude: parseFloat(currentData.currentAddressLongitude)
              });
           }
-        } else {
+        } else if (isFullyOnboarded) {
+          // Only restore a raw GPS cache for users who have completed onboarding.
+          // New users mid-onboarding must go through LocationScreen fresh.
           const savedLocation = storage.getObject<{ latitude: number; longitude: number }>('locationData');
           let permissionGranted = false;
           if (Platform.OS === 'ios') {
