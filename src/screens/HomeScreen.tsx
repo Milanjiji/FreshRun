@@ -10,6 +10,7 @@ import {
   TextInput,
   Dimensions,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import io from 'socket.io-client';
@@ -57,6 +58,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [showDebugMap, setShowDebugMap] = useState(false);
   const [avgDeliveryTime, setAvgDeliveryTime] = useState<number>(20);
+  const [maxRadius, setMaxRadius] = useState<number>(10.0);
+  const [suggestions, setSuggestions] = useState<{ stores: any[]; products: any[] }>({ stores: [], products: [] });
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -203,6 +208,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       const settingsResult = await settingsRes.json();
       const globalMaxRadius = parseFloat(settingsResult?.data?.global_max_delivery_radius || '10.0');
       console.log('[HomeScreen] Global Max Radius:', globalMaxRadius);
+      setMaxRadius(globalMaxRadius);
 
       // 2. Fetch stores including inactive ones
       console.log(`[HomeScreen] Fetching stores for category: ${selectedCategory}, isVeg: ${isVeg}`);
@@ -321,6 +327,124 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     } catch (error) {
       console.error('Error fetching store for product:', error);
     }
+  };
+
+  // Fetch search suggestions with debouncing and delivery perimeter filtering
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) {
+      setSuggestions({ stores: [], products: [] });
+      setShowSuggestions(false);
+      return;
+    }
+
+    console.log('[SearchDebug] Query typed:', searchQuery);
+
+    const delayDebounceFn = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const url = `${API_BASE_URL}/search?q=${encodeURIComponent(searchQuery.trim())}`;
+        console.log('[SearchDebug] Fetching from URL:', url);
+        const response = await fetch(url);
+        const result = await response.json();
+        
+        console.log('[SearchDebug] Server response success:', result.success);
+        
+        if (result.success && result.data) {
+          const { stores: fetchedStores, products: fetchedProducts } = result.data;
+          console.log('[SearchDebug] Raw stores returned:', fetchedStores.length);
+          console.log('[SearchDebug] Raw products returned:', fetchedProducts.length);
+          
+          let filteredStores = [];
+          let filteredProducts = [];
+          
+          console.log('[SearchDebug] User Location:', locationData?.latitude, locationData?.longitude);
+          console.log('[SearchDebug] Max Delivery Radius:', maxRadius);
+          
+          if (locationData?.latitude && locationData?.longitude) {
+            const userLat = locationData.latitude;
+            const userLng = locationData.longitude;
+            
+            // Filter stores in range
+            filteredStores = fetchedStores.filter((s: any) => {
+              const storeLat = parseFloat(s.latitude);
+              const storeLng = parseFloat(s.longitude);
+              if (isNaN(storeLat) || isNaN(storeLng)) {
+                console.log(`[SearchDebug] Store ${s.name} coordinates invalid:`, s.latitude, s.longitude);
+                return false;
+              }
+              const dist = calculateDistance(userLat, userLng, storeLat, storeLng);
+              s.distance = dist;
+              const inRange = dist <= maxRadius;
+              console.log(`[SearchDebug] Store ${s.name}: dist=${dist.toFixed(2)}km, max=${maxRadius}km, inRange=${inRange}`);
+              return inRange;
+            });
+            
+            // Filter products in range
+            filteredProducts = fetchedProducts.filter((p: any) => {
+              const storeLat = parseFloat(p.store_latitude);
+              const storeLng = parseFloat(p.store_longitude);
+              if (isNaN(storeLat) || isNaN(storeLng)) {
+                console.log(`[SearchDebug] Product ${p.name} parent store coordinates invalid:`, p.store_latitude, p.store_longitude);
+                return false;
+              }
+              const dist = calculateDistance(userLat, userLng, storeLat, storeLng);
+              p.distance = dist;
+              const inRange = dist <= maxRadius;
+              console.log(`[SearchDebug] Product ${p.name} (Store: ${p.store_name}): dist=${dist.toFixed(2)}km, max=${maxRadius}km, inRange=${inRange}`);
+              return inRange;
+            });
+          } else {
+            console.log('[SearchDebug] LocationData missing coordinates. Showing all.');
+            filteredStores = fetchedStores;
+            filteredProducts = fetchedProducts;
+          }
+
+          console.log('[SearchDebug] Filtered stores count:', filteredStores.length);
+          console.log('[SearchDebug] Filtered products count:', filteredProducts.length);
+
+          setSuggestions({ stores: filteredStores, products: filteredProducts });
+          setShowSuggestions(true);
+        } else {
+          console.log('[SearchDebug] Search failed or returned invalid format:', result);
+        }
+      } catch (err: any) {
+        console.error('[HomeScreen] Search fetch error:', err.message);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, locationData?.latitude, locationData?.longitude, maxRadius]);
+
+  const handleStorePressSuggestion = async (storeId: string) => {
+    setShowSuggestions(false);
+    setSearchQuery('');
+    
+    // 1. Try finding in loaded stores list
+    const store = stores.find(s => s.id === storeId);
+    if (store) {
+      onStorePress(store);
+      return;
+    }
+
+    // 2. Fetch full store data from server if not found
+    try {
+      const baseUrl = API_BASE_URL;
+      const response = await fetch(`${baseUrl}/stores/${storeId}`);
+      const result = await response.json();
+      if (result.success && result.data) {
+        onStorePress(result.data);
+      }
+    } catch (err) {
+      console.error('[HomeScreen] Error navigating to store:', err);
+    }
+  };
+
+  const handleProductPressSuggestion = (product: any) => {
+    setShowSuggestions(false);
+    setSearchQuery('');
+    handleProductPress(product);
   };
 
   const handleFilterPress = (filter: string) => {
@@ -580,7 +704,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
               style={styles.searchInput}
               value={searchQuery}
               onChangeText={setSearchQuery}
+              onFocus={() => setShowSuggestions(true)}
             />
+            {searchQuery.trim().length > 0 && (
+              <TouchableOpacity onPress={() => { setSearchQuery(''); setShowSuggestions(false); }} style={{ padding: 5 }}>
+                <Icon name="close-circle" size={20} color="#999" />
+              </TouchableOpacity>
+            )}
           </View>
 
           <TouchableOpacity 
@@ -601,6 +731,67 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             </View>
           </TouchableOpacity>
         </View>
+
+        {showSuggestions && searchQuery.trim().length >= 2 && (
+          <View style={styles.suggestionsDropdown}>
+            <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
+              {searchLoading ? (
+                <View style={styles.loaderContainer}>
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                  <Text style={styles.searchingText}>Searching...</Text>
+                </View>
+              ) : (
+                <>
+                  {suggestions.stores.length === 0 && suggestions.products.length === 0 ? (
+                    <Text style={styles.noResultsText}>No matches found</Text>
+                  ) : (
+                    <>
+                      {suggestions.stores.length > 0 && (
+                        <View style={styles.sectionContainer}>
+                          <Text style={styles.sectionHeader}>STORES</Text>
+                          {suggestions.stores.map((store) => (
+                            <TouchableOpacity 
+                              key={store.id} 
+                              style={styles.suggestionRow}
+                              onPress={() => handleStorePressSuggestion(store.id)}
+                            >
+                              <Icon name="storefront-outline" size={18} color="#666" style={{ marginRight: 10 }} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.suggestionText} numberOfLines={1}>{store.name}</Text>
+                                <Text style={styles.suggestionSubtext} numberOfLines={1}>Store • {store.city || 'Calicut'}</Text>
+                              </View>
+                              <Icon name="arrow-forward-outline" size={16} color="#ccc" />
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+
+                      {suggestions.products.length > 0 && (
+                        <View style={styles.sectionContainer}>
+                          <Text style={styles.sectionHeader}>DISHES & PRODUCTS</Text>
+                          {suggestions.products.map((product) => (
+                            <TouchableOpacity 
+                              key={product.id} 
+                              style={styles.suggestionRow}
+                              onPress={() => handleProductPressSuggestion(product)}
+                            >
+                              <Icon name="fast-food-outline" size={18} color="#666" style={{ marginRight: 10 }} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.suggestionText} numberOfLines={1}>{product.name}</Text>
+                                <Text style={styles.suggestionSubtext} numberOfLines={1}>Dish • from {product.store_name}</Text>
+                              </View>
+                              <Icon name="arrow-forward-outline" size={16} color="#ccc" />
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </ScrollView>
+          </View>
+        )}
       </Animated.View>
 
       {/* Absolute Positioned Sticky CategoryTabs */}
@@ -999,6 +1190,73 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 8,
     fontFamily: Fonts.black,
+  },
+  suggestionsDropdown: {
+    position: 'absolute',
+    top: 60,
+    left: 15,
+    right: 15,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    maxHeight: 320,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    zIndex: 999,
+  },
+  loaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    gap: 10,
+  },
+  searchingText: {
+    color: '#666',
+    fontSize: 14,
+    fontFamily: Fonts.regular,
+  },
+  noResultsText: {
+    padding: 20,
+    textAlign: 'center',
+    color: '#999',
+    fontSize: 14,
+    fontFamily: Fonts.regular,
+  },
+  sectionContainer: {
+    paddingVertical: 8,
+  },
+  sectionHeader: {
+    fontSize: 11,
+    fontFamily: Fonts.bold,
+    color: '#888',
+    backgroundColor: '#f8f8f8',
+    paddingHorizontal: 15,
+    paddingVertical: 5,
+    letterSpacing: 0.5,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+  suggestionText: {
+    fontSize: 14,
+    fontFamily: Fonts.medium,
+    color: '#333',
+  },
+  suggestionSubtext: {
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    color: '#888',
+    marginTop: 2,
   }
 });
 

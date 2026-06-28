@@ -158,11 +158,32 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
 
         if (response.data.success) {
           const { user } = response.data;
-          console.log('Backend login success');
+          console.log('Backend login success. Waiting for Firebase SDK auth state to sync...');
           
           // Store Firebase ID Token as the session token
           storage.setItem('userToken', idToken);
           storage.setItem('userData', user);
+
+          // Fix 4: Wait for onAuthStateChanged to fire before navigating.
+          // This ensures auth().currentUser is non-null and getIdToken() will
+          // return a valid token when the next screen's API interceptor runs.
+          // We cap the wait at 3 seconds — if it doesn't fire, proceed anyway
+          // since the token is already stored in MMKV as a fallback.
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => {
+              console.warn('[LoginScreen] onAuthStateChanged did not fire within 3s — proceeding with cached token.');
+              resolve();
+            }, 3000);
+
+            const unsubscribe = auth().onAuthStateChanged((authUser) => {
+              if (authUser) {
+                console.log('[LoginScreen] onAuthStateChanged confirmed. Firebase SDK session is ready.');
+                clearTimeout(timeout);
+                unsubscribe();
+                resolve();
+              }
+            });
+          });
           
           onLoginSuccess(idToken, user);
         } else {

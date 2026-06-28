@@ -111,7 +111,7 @@ const AccountScreen: React.FC<AccountScreenProps> = ({
                 } else {
                   Alertt.alert('Error', data?.error || 'Failed to delete account');
                 }
-              } catch (error) {
+              } catch (error: any) {
                 console.error('Delete account error:', error);
                 const errMsg = error?.response?.data?.error || 'Something went wrong. Please try again later.';
                 Alertt.alert('Error', errMsg);

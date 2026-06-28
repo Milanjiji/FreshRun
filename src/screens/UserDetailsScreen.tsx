@@ -14,6 +14,7 @@ import {
 import { Alertt } from '../components/Alertt';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../utils/api';
+import auth from '@react-native-firebase/auth';
 import { storage } from '../utils/storage';
 import { Fonts } from '../theme/typography';
 
@@ -83,6 +84,22 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
     fetchExistingProfile();
   }, []);
 
+  // Retry a single API call once on 404, waiting delayMs before retrying.
+  // This covers the narrow window where the backend /auth/login DB write
+  // hasn't fully committed before the first protected request arrives.
+  const withRetryOn404 = async <T>(fn: () => Promise<T>, delayMs = 2000): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        console.warn('[UserDetailsScreen] Got 404 — retrying once after', delayMs, 'ms...');
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return await fn();
+      }
+      throw err;
+    }
+  };
+
   const handleSave = async () => {
     console.log('handleSave invoked', { isAddingNewAddress, fullName, email, addressLine, houseNumber, pincode, saveAs });
     if (!fullName.trim() || !email.trim() || !addressLine.trim() || !houseNumber.trim() || !pincode.trim()) {
@@ -92,18 +109,30 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
 
     setLoading(true);
     try {
+      // Fix 5: Force a fresh Firebase ID token before any API call.
+      // This ensures the API interceptor uses a valid token and the backend
+      // derives the correct userId hash — preventing auth mismatches on new signups.
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        try {
+          await currentUser.getIdToken(true);
+          console.log('[UserDetailsScreen] Firebase token refreshed successfully before save.');
+        } catch (tokenErr) {
+          console.warn('[UserDetailsScreen] Token refresh failed, proceeding with cached token:', tokenErr);
+        }
+      }
+
       if (isAddingNewAddress) {
         const finalSaveAs = saveAs.trim() || getRandomAddressName();
         console.log('Adding new address with saveAs:', finalSaveAs);
-        // 1. Add as a new address entry
-        const addResponse = await api.post(
-          '/user/addresses',
-          { 
+        // 1. Add as a new address entry (with retry on 404)
+        const addResponse = await withRetryOn404(() =>
+          api.post('/user/addresses', {
             fullName, email, houseNumber, addressLine, landmark,
             pincode, city, deliveryMessage, addressType, saveAs: finalSaveAs,
             latitude: locationData?.latitude,
-            longitude: locationData?.longitude
-          }
+            longitude: locationData?.longitude,
+          })
         );
         console.log('addResponse', addResponse.data);
         if (addResponse.data.success) {
@@ -129,18 +158,18 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
       } else {
         const finalSaveAs = saveAs.trim() || (userData?.saveAs) || getRandomAddressName();
         console.log('Updating profile with saveAs:', finalSaveAs);
-        // Standard profile update
-        const response = await api.put(
-          '/user/profile',
-          { 
-            fullName, email, houseNumber, addressLine, landmark,
-            pincode, city, deliveryMessage, addressType, saveAs: finalSaveAs,
-            latitude: locationData?.latitude,
-            longitude: locationData?.longitude
-          },
-          {
-            timeout: 15000,
-          }
+        // Standard profile update (with retry on 404)
+        const response = await withRetryOn404(() =>
+          api.put(
+            '/user/profile',
+            {
+              fullName, email, houseNumber, addressLine, landmark,
+              pincode, city, deliveryMessage, addressType, saveAs: finalSaveAs,
+              latitude: locationData?.latitude,
+              longitude: locationData?.longitude,
+            },
+            { timeout: 15000 }
+          )
         );
         console.log('profile update response', response.data);
         if (response.data.success) {
