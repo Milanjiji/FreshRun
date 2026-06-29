@@ -241,8 +241,10 @@ function App() {
               }
             }
           }
-        } catch (e) {
-          console.error('[AuthTrace][Startup] Error getting ID token:', e);
+        } catch (e: any) {
+          if (e?.code !== 'auth/no-current-user') {
+            console.error('[AuthTrace][Startup] Error getting ID token:', e);
+          }
           const cachedToken = storage.getString('userToken');
           if (cachedToken) {
             setToken(cachedToken);
