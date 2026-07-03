@@ -52,7 +52,6 @@
 		<string>Poppins-Bold.ttf</string>
 		<string>Poppins-Black.ttf</string>
 		<string>Poppins-SemiBold.ttf</string>
-		<string>Ionicons.ttf</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

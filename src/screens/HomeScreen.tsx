@@ -7,12 +7,9 @@ import {
   ScrollView,
   StatusBar,
   Image,
-  TextInput,
-  Dimensions,
-  Animated,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import io from 'socket.io-client';
 import HomeHeader from '../components/HomeHeader';
 import { Colors } from '../theme/colors';
@@ -63,41 +60,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
 
-  const insets = useSafeAreaInsets();
-  const scrollY = useRef(new Animated.Value(0)).current;
-
-  const searchY = scrollY.interpolate({
-    inputRange: [0, 80],
-    outputRange: [80, 0],
-    extrapolate: 'clamp',
-  });
-
-  const categoryY = scrollY.interpolate({
-    inputRange: [0, 270],
-    outputRange: [330 + insets.top, 60 + insets.top],
-    extrapolate: 'clamp',
-  });
-
   const socketRef = useRef<any>(null);
-  const bannerScrollRef = useRef<ScrollView>(null);
-  const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
-  const { width: screenWidth } = Dimensions.get('window');
-  const bannerWidth = screenWidth - 30; // 15px padding on each side
-  const snapInterval = bannerWidth + 15; // Width + Gap
 
-  // Auto-scroll banners
-  useEffect(() => {
-    if (banners.length > 1) {
-      const interval = setInterval(() => {
-        setCurrentBannerIndex((prev) => {
-          const nextIndex = (prev + 1) % banners.length;
-          bannerScrollRef.current?.scrollTo({ x: nextIndex * snapInterval, animated: true });
-          return nextIndex;
-        });
-      }, 3000);
-      return () => clearInterval(interval);
-    }
-  }, [banners.length, snapInterval]);
+
 
   const [categories, setCategories] = useState<any[]>([
     { id: "restaurants", name: "RESTAURANTS", icon: "restaurant-outline" },
@@ -495,92 +460,54 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primary} translucent={true} />
-      
-      <Animated.ScrollView 
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
-        )}
-        scrollEventThrottle={16}
-      >
-        <View style={{ height: 80 + insets.top, overflow: 'hidden' }}>
-          <HomeHeader 
-            userData={userData} 
-            avgTime={avgDeliveryTime}
-            onProfilePress={onProfilePress}
-            onAddressPress={onAddressPress}
-            onProfileLongPress={() => setShowDebugMap(true)}
-          />
-        </View>
 
-        {/* Spacer for search bar (H2 = 60) */}
-        <View style={{ height: 60, backgroundColor: Colors.primary }} />
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* ── Green Header Block ── */}
+        <HomeHeader
+          userData={userData}
+          avgTime={avgDeliveryTime}
+          onProfilePress={onProfilePress}
+          onAddressPress={onAddressPress}
+          onProfileLongPress={() => setShowDebugMap(true)}
+          banners={banners}
+          onBannerPress={onBannerPress}
+          categories={categories}
+          selectedCategory={selectedCategory}
+          onCategorySelect={setSelectedCategory}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onSearchFocus={() => setShowSuggestions(true)}
+          onSearchClear={() => { setSearchQuery(''); setShowSuggestions(false); }}
+          isVeg={isVeg}
+          onVegToggle={() => {
+            const nextVeg = !isVeg;
+            setIsVeg(nextVeg);
+            if (nextVeg) { setActiveFilter('Pure Veg'); }
+            else if (activeFilter === 'Pure Veg') { setActiveFilter(null); }
+          }}
+        />
 
-        {/* Dynamic Banners Carousel (Now inside a container with primary background to match) */}
-        <View style={{ backgroundColor: Colors.primary }}>
-          <View style={styles.bannerSection}>
-            <ScrollView 
-              ref={bannerScrollRef}
-              horizontal 
-              showsHorizontalScrollIndicator={false} 
-              contentContainerStyle={styles.bannerScroll}
-              snapToInterval={snapInterval}
-              decelerationRate="fast"
-              onMomentumScrollEnd={(e) => {
-                const newIndex = Math.round(e.nativeEvent.contentOffset.x / snapInterval);
-                setCurrentBannerIndex(newIndex);
-              }}
-            >
-              {banners.length > 0 ? (
-                banners.map((banner) => (
-                  <TouchableOpacity 
-                    key={banner.id} 
-                    style={[styles.bannerCard, { width: bannerWidth }]}
-                    onPress={() => onBannerPress && onBannerPress(banner.action_type, banner.action_payload, banner.image_url)}
-                    activeOpacity={0.9}
-                  >
-                    <TopCropImage 
-                      uri={getOptimizedImageUrl(banner.image_url, 600)} 
-                      containerStyle={styles.bannerImage} 
-                    />
-                  </TouchableOpacity>
-                ))
-              ) : (
-                /* Placeholder if no banners */
-                <View style={[styles.bannerCard, styles.bannerPlaceholder, { width: bannerWidth }]}>
-                  <Icon name="image-outline" size={40} color="#ccc" />
-                </View>
-              )}
-            </ScrollView>
-          </View>
-        </View>
-
-        {/* Spacer for Category Pills (H4 = 64) with bottom rounded corners */}
-        <View style={{ height: 64, backgroundColor: Colors.primary, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 }} />
-
-        {/* Circular Products (Whats on your mind) */}
+        {/* ── Products (Whats on your mind) ── */}
         <View style={styles.mindSection}>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false} 
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.mindScroll}
           >
             {loading ? (
               [1, 2, 3, 4, 5].map((i) => <View key={i} style={styles.skeletonCircle} />)
             ) : products.length > 0 ? (
               products.map((product) => (
-                <TouchableOpacity 
-                  key={product.id} 
+                <TouchableOpacity
+                  key={product.id}
                   style={[styles.mindItem, !product.is_active && { opacity: 0.7 }]}
                   onPress={() => product.is_active && handleProductPress(product)}
                 >
-
                   <View style={styles.mindImageContainer}>
                     {product.image_url ? (
-                      <Image 
-                        source={{ uri: getOptimizedImageUrl(product.image_url, 150) }} 
-                        style={[styles.mindImage, !product.is_active && { tintColor: 'gray' } as any]} 
+                      <Image
+                        source={{ uri: getOptimizedImageUrl(product.image_url, 150) }}
+                        style={[styles.mindImage, !product.is_active && { tintColor: 'gray' } as any]}
                       />
                     ) : (
                       <Icon name="fast-food-outline" size={24} color="#ccc" />
@@ -593,7 +520,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                   </View>
                   <Text style={styles.mindName} numberOfLines={1}>{product.name}</Text>
                 </TouchableOpacity>
-
               ))
             ) : (
               <Text style={styles.noData}>No items found</Text>
@@ -601,16 +527,16 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
           </ScrollView>
 
           {/* Filters */}
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false} 
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterScroll}
           >
             {filters.map((filter, index) => {
               const isActive = activeFilter === filter;
               return (
-                <TouchableOpacity 
-                  key={index} 
+                <TouchableOpacity
+                  key={index}
                   style={[styles.filterChip, isActive && styles.filterChipActive]}
                   onPress={() => handleFilterPress(filter)}
                 >
@@ -621,118 +547,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
           </ScrollView>
         </View>
 
-        {/* Store Listing */}
-        <View style={styles.storeListContainer}>
-          <View style={styles.listHeader}>
-            <Text style={styles.listTitle}>{selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)} to explore</Text>
-            <Text style={styles.listSubtitle}>Featured {selectedCategory}</Text>
-          </View>
-
-          {loading ? (
-            <View style={{ padding: 20 }}><Text>Loading stores...</Text></View>
-          ) : getFilteredStores().length > 0 ? (
-            getFilteredStores().map((store) => {
-              const storeProducts = products.filter(p => p.store_id === store.id);
-              const maxDiscount = storeProducts.reduce((max, p) => Math.max(max, p.discount_percent || 0), 0);
-              const displayDiscount = store.max_discount || maxDiscount;
-
-              return (
-                <TouchableOpacity 
-                  key={store.id} 
-                  style={[styles.storeCard, !store.is_active && styles.storeCardInactive]}
-                  onPress={() => onStorePress(store)}
-                >
-                  <View style={styles.imageContainer}>
-                    <Image 
-                      source={{ uri: getOptimizedImageUrl(store.image_url, 500) }} 
-                      style={[styles.storeImage, !store.is_active && { opacity: 0.6 }]} 
-                    />
-                    {!store.is_active && (
-                      <View style={styles.unserviceableOverlay}>
-                         <Text style={styles.unserviceableTextOverlay}>CURRENTLY UNSERVICEABLE</Text>
-                      </View>
-                    )}
-                    <TouchableOpacity style={styles.heartButton}>
-                      <Icon name="heart-outline" size={22} color="#fff" />
-                    </TouchableOpacity>
-                    
-                    {displayDiscount > 0 && store.is_active && (
-                      <View style={styles.promoBadge}>
-                        <Text style={styles.promoText}>Upto {displayDiscount}% OFF</Text>
-                      </View>
-                    )}
-
-                    <View style={styles.timeBadge}>
-                      <Text style={styles.timeBadgeText}>
-                        {store.deliveryTime 
-                          ? (store.deliveryTime < 60 
-                              ? `${store.deliveryTime - 5}-${store.deliveryTime + 5} MINS` 
-                              : formatDeliveryTime(store.deliveryTime).toUpperCase())
-                          : '25-30 MINS'}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.storeInfo}>
-                    <View style={styles.storeNameRow}>
-                      <Text style={[styles.storeName, !store.is_active && { color: '#999' }]}>{store.name}</Text>
-                    </View>
-
-                    <View style={styles.metaRow}>
-                      <Text style={styles.metaText}>{store.city || 'Calicut'}, {store.distance?.toFixed(1) || '6.6'} km</Text>
-                      <View style={styles.metaDot} />
-                      <Text style={styles.metaText}>₹1-299 for one</Text>
-                    </View>
-                    
-                    <Text style={styles.cuisineText}>Beverages, Snacks, Desserts</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })
-          ) : (
-            <Text style={styles.noData}>No stores found in this category</Text>
-          )}
-        </View>
-      </Animated.ScrollView>
-
-      {/* Absolute Positioned Sticky SearchBar */}
-      <Animated.View style={[styles.absoluteSearchBar, { height: 60 + insets.top, paddingTop: insets.top, transform: [{ translateY: searchY }] }]}>
-        <View style={[styles.searchRow, { marginBottom: 0 }]}>
-          <View style={styles.searchContainer}>
-            <Icon name="search-outline" size={20} color={Colors.primary} />
-            <TextInput 
-              placeholder="Search for 'Pizza'" 
-              style={styles.searchInput}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              onFocus={() => setShowSuggestions(true)}
-            />
-            {searchQuery.trim().length > 0 && (
-              <TouchableOpacity onPress={() => { setSearchQuery(''); setShowSuggestions(false); }} style={{ padding: 5 }}>
-                <Icon name="close-circle" size={20} color="#999" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <TouchableOpacity 
-            style={[styles.vegToggle, isVeg && styles.vegToggleActive]}
-            onPress={() => {
-              const nextVeg = !isVeg;
-              setIsVeg(nextVeg);
-              if (nextVeg) {
-                setActiveFilter("Pure Veg");
-              } else if (activeFilter === "Pure Veg") {
-                setActiveFilter(null);
-              }
-            }}
-          >
-            <Text style={[styles.vegText, isVeg && styles.vegTextActive]}>VEG</Text>
-            <View style={[styles.toggleTrack, isVeg && styles.toggleTrackActive]}>
-              <View style={[styles.toggleThumb, isVeg && styles.toggleThumbActive]} />
-            </View>
-          </TouchableOpacity>
-        </View>
-
+        {/* ── Search Suggestions Dropdown ── */}
         {showSuggestions && searchQuery.trim().length >= 2 && (
           <View style={styles.suggestionsDropdown}>
             <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
@@ -751,8 +566,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                         <View style={styles.sectionContainer}>
                           <Text style={styles.sectionHeader}>STORES</Text>
                           {suggestions.stores.map((store) => (
-                            <TouchableOpacity 
-                              key={store.id} 
+                            <TouchableOpacity
+                              key={store.id}
                               style={styles.suggestionRow}
                               onPress={() => handleStorePressSuggestion(store.id)}
                             >
@@ -766,13 +581,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                           ))}
                         </View>
                       )}
-
                       {suggestions.products.length > 0 && (
                         <View style={styles.sectionContainer}>
                           <Text style={styles.sectionHeader}>DISHES & PRODUCTS</Text>
                           {suggestions.products.map((product) => (
-                            <TouchableOpacity 
-                              key={product.id} 
+                            <TouchableOpacity
+                              key={product.id}
                               style={styles.suggestionRow}
                               onPress={() => handleProductPressSuggestion(product)}
                             >
@@ -793,37 +607,74 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             </ScrollView>
           </View>
         )}
-      </Animated.View>
 
-      {/* Absolute Positioned Sticky CategoryTabs */}
-      <Animated.View style={[styles.absoluteCategoryTabs, { transform: [{ translateY: categoryY }] }]}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false} 
-          contentContainerStyle={styles.pillsContainer}
-        >
-          {categories.map((cat) => {
-            const isActive = selectedCategory === cat.id;
-            return (
-              <TouchableOpacity
-                key={cat.id}
-                style={[styles.pillBtn, isActive && styles.pillBtnActive]}
-                onPress={() => setSelectedCategory(cat.id)}
-                activeOpacity={0.75}
-              >
-                <Icon 
-                  name={cat.icon} 
-                  size={22} 
-                  color={isActive ? Colors.white : 'rgba(255,255,255,0.5)'} 
-                />
-                <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
-                  {cat.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </Animated.View>
+        {/* ── Store Listing ── */}
+        <View style={styles.storeListContainer}>
+          <View style={styles.listHeader}>
+            <Text style={styles.listTitle}>{selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)} to explore</Text>
+            <Text style={styles.listSubtitle}>Featured {selectedCategory}</Text>
+          </View>
+
+          {loading ? (
+            <View style={{ padding: 20 }}><Text>Loading stores...</Text></View>
+          ) : getFilteredStores().length > 0 ? (
+            getFilteredStores().map((store) => {
+              const storeProducts = products.filter(p => p.store_id === store.id);
+              const maxDiscount = storeProducts.reduce((max, p) => Math.max(max, p.discount_percent || 0), 0);
+              const displayDiscount = store.max_discount || maxDiscount;
+              return (
+                <TouchableOpacity
+                  key={store.id}
+                  style={[styles.storeCard, !store.is_active && styles.storeCardInactive]}
+                  onPress={() => onStorePress(store)}
+                >
+                  <View style={styles.imageContainer}>
+                    <Image
+                      source={{ uri: getOptimizedImageUrl(store.image_url, 500) }}
+                      style={[styles.storeImage, !store.is_active && { opacity: 0.6 }]}
+                    />
+                    {!store.is_active && (
+                      <View style={styles.unserviceableOverlay}>
+                        <Text style={styles.unserviceableTextOverlay}>CURRENTLY UNSERVICEABLE</Text>
+                      </View>
+                    )}
+                    <TouchableOpacity style={styles.heartButton}>
+                      <Icon name="heart-outline" size={22} color="#fff" />
+                    </TouchableOpacity>
+                    {displayDiscount > 0 && store.is_active && (
+                      <View style={styles.promoBadge}>
+                        <Text style={styles.promoText}>Upto {displayDiscount}% OFF</Text>
+                      </View>
+                    )}
+                    <View style={styles.timeBadge}>
+                      <Text style={styles.timeBadgeText}>
+                        {store.deliveryTime
+                          ? (store.deliveryTime < 60
+                              ? `${store.deliveryTime - 5}-${store.deliveryTime + 5} MINS`
+                              : formatDeliveryTime(store.deliveryTime).toUpperCase())
+                          : '25-30 MINS'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.storeInfo}>
+                    <View style={styles.storeNameRow}>
+                      <Text style={[styles.storeName, !store.is_active && { color: '#999' }]}>{store.name}</Text>
+                    </View>
+                    <View style={styles.metaRow}>
+                      <Text style={styles.metaText}>{store.city || 'Calicut'}, {store.distance?.toFixed(1) || '6.6'} km</Text>
+                      <View style={styles.metaDot} />
+                      <Text style={styles.metaText}>₹1-299 for one</Text>
+                    </View>
+                    <Text style={styles.cuisineText}>Beverages, Snacks, Desserts</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            <Text style={styles.noData}>No stores found in this category</Text>
+          )}
+        </View>
+      </ScrollView>
 
       <CartFooter />
       <ActiveOrderWidget />
@@ -835,151 +686,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-  },
-  absoluteSearchBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 60,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  absoluteCategoryTabs: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 64,
-    backgroundColor: Colors.primary,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    zIndex: 10,
-  },
-  // ── Category Pills ──────────────────────────────────────────────
-  pillsContainer: {
-    flexDirection: 'row',
-    paddingLeft: 20,
-    paddingRight: 20,
-    paddingTop: 5,
-    paddingBottom: 24,
-    gap: 30,
-  },
-  pillBtn: {
-    paddingVertical: 4,
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-  },
-  pillBtnActive: {
-    backgroundColor: 'transparent',
-  },
-  pillText: {
-    fontSize: 11,
-    fontFamily: Fonts.bold,
-    color: 'rgba(255,255,255,0.5)',
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
-  pillTextActive: {
-    color: Colors.white,
-  },
-  stickySection: {
-    backgroundColor: Colors.primary,
-    paddingTop: 0,
-    paddingBottom: 0,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    marginBottom: 12,
-  },
-  searchContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 48,
-    marginRight: 10,
-  },
-  searchInput: {
-    flex: 1,
-    marginLeft: 10,
-    fontFamily: Fonts.regular,
-    fontSize: 15,
-    color: '#333',
-  },
-
-  vegToggle: {
-    width: 60,
-    height: 48,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  vegToggleActive: {
-    borderColor: Colors.white,
-    backgroundColor: 'rgba(255,255,255,0.35)',
-  },
-  vegText: {
-    fontSize: 9,
-    fontFamily: Fonts.black,
-    color: 'rgba(255,255,255,0.8)',
-    marginBottom: 2,
-  },
-  vegTextActive: {
-    color: Colors.white,
-  },
-  toggleTrack: {
-    width: 24,
-    height: 12,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 6,
-    padding: 2,
-    justifyContent: 'center',
-  },
-  toggleTrackActive: {
-    backgroundColor: Colors.white,
-  },
-  toggleThumb: {
-    width: 8,
-    height: 8,
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderRadius: 4,
-  },
-  toggleThumbActive: {
-    backgroundColor: Colors.primary,
-    transform: [{ translateX: 12 }],
-  },
-  bannerSection: {
-    paddingVertical: 15,
-  },
-  bannerScroll: {
-    paddingHorizontal: 15,
-    gap: 15,
-  },
-  bannerCard: {
-    height: 160,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#f0f0f0',
-  },
-  bannerImage: {
-    width: '100%',
-    height: '100%',
-  },
-  bannerPlaceholder: {
-    backgroundColor: '#e0e0e0',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   mindSection: {
     paddingVertical: 15,
