@@ -10,9 +10,9 @@ import {
   Image,
   ScrollView,
   } from 'react-native';
-  import { Alertt } from '../components/Alertt';
+import { Alertt } from '../components/Alertt';
   import { SafeAreaView } from 'react-native-safe-area-context';
-import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import auth from '@react-native-firebase/auth';
 import axios from 'axios';
 import api from '../utils/api';
 import { storage } from '../utils/storage';
@@ -20,10 +20,8 @@ import { PageTitle, PageSubtitle } from '../components/Typography';
 import { PrimaryButton } from '../components/Button';
 import { Fonts } from '../theme/typography';
 
-// Replace with your actual backend URL
-import { API_BASE_URL } from '../config/api';
 
-const BACKEND_URL = API_BASE_URL;
+
 const OTP_REQUEST_TIMEOUT_MS = 30000;
 const BACKEND_REQUEST_TIMEOUT_MS = 15000;
 
@@ -53,43 +51,18 @@ const withTimeout = async <T,>(
   }
 };
 
-const getAuthErrorMessage = (error: any, fallbackMessage: string) => {
-  const errorCode = error?.code;
-  const errorMessage = error?.message;
 
-  if (errorCode === 'auth/invalid-phone-number') {
-    return 'Please enter a valid phone number.';
-  }
-
-  if (errorCode === 'auth/too-many-requests') {
-    return 'Too many OTP attempts. Please wait a bit and try again.';
-  }
-
-  if (errorCode === 'auth/network-request-failed') {
-    return 'Network error while contacting Firebase. Please check your internet and try again.';
-  }
-
-  if (errorCode === 'auth/invalid-verification-code') {
-    return 'The OTP you entered is invalid. Please try again.';
-  }
-
-  if (errorCode === 'auth/code-expired') {
-    return 'This OTP has expired. Please request a new one.';
-  }
-
-  return errorMessage || fallbackMessage;
-};
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [code, setCode] = useState('');
-  const [confirm, setConfirm] =
-    useState<FirebaseAuthTypes.ConfirmationResult | null>(null);
+  const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
 
   // STEP 1: Send OTP
   const signInWithPhoneNumber = async () => {
+    if (loading) return;
     try {
       const sanitizedPhone = phoneNumber.replace(/\D/g, '');
       if (!sanitizedPhone || sanitizedPhone.length < 10) {
@@ -98,103 +71,97 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
       }
 
       const formattedNumber = `+91${sanitizedPhone}`;
-      console.log('Attempting to send OTP to:', formattedNumber);
+      console.log('Attempting to send OTP via backend to:', formattedNumber);
       
       setLoading(true);
-      const confirmation = await withTimeout(
-        auth().signInWithPhoneNumber(formattedNumber),
+      await withTimeout(
+        api.post('/auth/send-otp', { phoneNumber: formattedNumber }),
         OTP_REQUEST_TIMEOUT_MS,
         'OTP request timed out. Please try again.',
       );
       
-      console.log('OTP Sent successfully to:', formattedNumber);
-      setConfirm(confirmation);
+      console.log('OTP Sent successfully via backend to:', formattedNumber);
+      setOtpSent(true);
     } catch (error: any) {
       console.error('Send OTP Error details:', error);
-      Alertt.alert('Login Failed', getAuthErrorMessage(error, 'Could not send OTP'));
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.error || error.message || 'Could not send OTP'
+        : error.message || 'Could not send OTP';
+      Alertt.alert('Login Failed', message);
     } finally {
       setLoading(false);
     }
   };
 
-  // STEP 2: Verify OTP and Call Backend
+  // STEP 2: Verify OTP
   const confirmCode = async () => {
     if (!code || code.length < 6) {
       Alertt.alert('Error', 'Please enter a 6-digit code');
       return;
     }
 
+    if (loading) return;
     setLoading(true);
     try {
-      if (!confirm) {
-        console.error('Confirm object is null');
-        return;
-      }
+      const sanitizedPhone = phoneNumber.replace(/\D/g, '');
+      const formattedNumber = `+91${sanitizedPhone}`;
       
-      console.log('Verifying code:', code);
-      // Verify OTP with Firebase
-      const credential = await confirm.confirm(code);
-      
-      if (credential?.user) {
-        // Get ID Token
+      console.log('Verifying code via backend:', code);
+      const response = await withTimeout(
+        api.post('/auth/verify-otp', {
+          phoneNumber: formattedNumber,
+          code,
+          role,
+        }),
+        BACKEND_REQUEST_TIMEOUT_MS,
+        'Timed out verifying OTP. Please try again.',
+      );
+
+      if (response.data.success) {
+        const { customToken, user } = response.data;
+        console.log('OTP verified. Signing in with custom token...');
+
+        // Sign in to Firebase with the custom token
+        const userCredential = await auth().signInWithCustomToken(customToken);
+        const firebaseUser = userCredential.user;
+
+        // Get standard ID Token
         const idToken = await withTimeout(
-          credential.user.getIdToken(),
+          firebaseUser.getIdToken(),
           BACKEND_REQUEST_TIMEOUT_MS,
           'Timed out while fetching the Firebase token. Please try again.',
         );
-        console.log('Firebase verified. Exchanging for JWT...');
 
-        // Call Backend
-        const response = await api.post(
-          '/auth/login',
-          {
-            idToken,
-            role,
-          },
-          {
-            timeout: BACKEND_REQUEST_TIMEOUT_MS,
-          }
-        );
+        console.log('Firebase session ready. Storing token...');
+        storage.setItem('userToken', idToken);
+        storage.setItem('userData', user);
 
-        if (response.data.success) {
-          const { user } = response.data;
-          console.log('Backend login success. Waiting for Firebase SDK auth state to sync...');
-          
-          // Store Firebase ID Token as the session token
-          storage.setItem('userToken', idToken);
-          storage.setItem('userData', user);
+        // Wait for onAuthStateChanged to sync state (similar to Google flow)
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            console.warn('[LoginScreen] onAuthStateChanged did not fire within 3s — proceeding with token.');
+            resolve();
+          }, 3000);
 
-          // Fix 4: Wait for onAuthStateChanged to fire before navigating.
-          // This ensures auth().currentUser is non-null and getIdToken() will
-          // return a valid token when the next screen's API interceptor runs.
-          // We cap the wait at 3 seconds — if it doesn't fire, proceed anyway
-          // since the token is already stored in MMKV as a fallback.
-          await new Promise<void>((resolve) => {
-            const timeout = setTimeout(() => {
-              console.warn('[LoginScreen] onAuthStateChanged did not fire within 3s — proceeding with cached token.');
+          const unsubscribe = auth().onAuthStateChanged((authUser) => {
+            if (authUser) {
+              console.log('[LoginScreen] onAuthStateChanged confirmed.');
+              clearTimeout(timeout);
+              unsubscribe();
               resolve();
-            }, 3000);
-
-            const unsubscribe = auth().onAuthStateChanged((authUser) => {
-              if (authUser) {
-                console.log('[LoginScreen] onAuthStateChanged confirmed. Firebase SDK session is ready.');
-                clearTimeout(timeout);
-                unsubscribe();
-                resolve();
-              }
-            });
+            }
           });
-          
-          onLoginSuccess(idToken, user);
-        } else {
-          throw new Error(response.data.error || 'Backend authentication failed');
-        }
+        });
+
+        onLoginSuccess(idToken, user);
+      } else {
+        throw new Error(response.data.error || 'Verification failed');
       }
     } catch (error: any) {
       console.error('Verification Error details:', error);
       const message = axios.isAxiosError(error)
-        ? error.response?.data?.error || error.message || 'Backend authentication failed'
-        : getAuthErrorMessage(error, 'Invalid OTP');
+        ? error.response?.data?.error || error.message || 'Invalid OTP'
+        : error.message || 'Invalid OTP';
       Alertt.alert('Verification Failed', message);
     } finally {
       setLoading(false);
@@ -214,6 +181,14 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
         >
           <View style={styles.topContainer}>
             <View style={styles.header}>
+              {otpSent && (
+                <TouchableOpacity onPress={() => {
+                  setOtpSent(false);
+                  setCode('');
+                }} style={styles.backToGoogleLink}>
+                  <Text style={styles.backToGoogleText}>← Change Phone Number</Text>
+                </TouchableOpacity>
+              )}
               <PageTitle>{isSignUp ? "Create Account" : "Welcome Back!"}</PageTitle>
               <PageSubtitle>
                 {isSignUp ? "Sign up to start ordering delicious food!" : "Sign in to access your account."}
@@ -221,7 +196,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
             </View>
 
             <View style={styles.inputSection}>
-              {!confirm ? (
+              {!otpSent ? (
                 <View style={styles.inputContainer}>
                   <View style={styles.inputWrapper}>
                     <View style={styles.countryPicker}>
@@ -261,8 +236,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, role }) => {
             </View>
 
             <PrimaryButton 
-              title={!confirm ? (isSignUp ? "Sign up" : "Sign in") : "Verify OTP"}
-              onPress={!confirm ? signInWithPhoneNumber : confirmCode}
+              title={!otpSent ? (isSignUp ? "Sign up" : "Sign in") : "Verify OTP"}
+              onPress={!otpSent ? signInWithPhoneNumber : confirmCode}
               loading={loading}
             />
           </View>
@@ -381,6 +356,74 @@ const styles = StyleSheet.create({
   loginImage: {
     width: '100%',
     height: '100%',
+  },
+  googleContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 40,
+    width: '100%',
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+    borderRadius: 30,
+    backgroundColor: '#FFFFFF',
+    height: 56,
+    width: '100%',
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  googleIcon: {
+    marginRight: 12,
+  },
+  googleButtonText: {
+    fontSize: 16,
+    fontFamily: Fonts.bold,
+    color: '#000000',
+    fontWeight: 'bold',
+  },
+  bottomLinkContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  phoneLinkText: {
+    fontSize: 15,
+    fontFamily: Fonts.bold,
+    color: '#5D3FD3',
+    textDecorationLine: 'underline',
+  },
+  headerCentered: {
+    marginBottom: 40,
+    alignItems: 'center',
+  },
+  backToGoogleLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  backToGoogleText: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: '#5D3FD3',
+  },
+  pageTitleCentered: {
+    textAlign: 'center',
+  },
+  pageSubtitleCentered: {
+    textAlign: 'center',
   },
 });
 

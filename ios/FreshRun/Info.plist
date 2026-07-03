@@ -52,6 +52,7 @@
 		<string>Poppins-Bold.ttf</string>
 		<string>Poppins-Black.ttf</string>
 		<string>Poppins-SemiBold.ttf</string>
+		<string>Ionicons.ttf</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
@@ -73,8 +74,6 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
 	<key>CodePushDeploymentKey</key>
-	<!-- Staging: 66Hkg7rKnZeaJKIbfBpO1yPN8JT04yGGSh3g4g -->
-	<!-- Production: N4dD5TE2z8RAe34by1YRpP5YJoRP4yGGSh3g4g -->
 	<string>66Hkg7rKnZeaJKIbfBpO1yPN8JT04yGGSh3g4g</string>
 	<key>CodePushServerURL</key>
 	<string>https://api.revopush.org</string>
@@ -91,4 +90,3 @@
 	</array>
 </dict>
 </plist>
-

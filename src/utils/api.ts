@@ -12,11 +12,21 @@ const api = axios.create({
   timeout: 15000,
 });
 
+// Public auth endpoints that are called before the user is signed in.
+// They must never have a token attached.
+const PUBLIC_AUTH_PATHS = ['/auth/send-otp', '/auth/verify-otp'];
+
 api.interceptors.request.use(
   async (config) => {
     const urlStr = config.url || '';
     console.log(`[AuthTrace][API] Intercepting outgoing request: ${config.method?.toUpperCase()} ${urlStr}`);
-    
+
+    // Skip token injection for public authentication endpoints
+    if (PUBLIC_AUTH_PATHS.some(path => urlStr.includes(path))) {
+      console.log('[AuthTrace][API] Skipping token injection for public auth endpoint.');
+      return config;
+    }
+
     let token = '';
     try {
       const currentUser = auth().currentUser;
@@ -48,7 +58,7 @@ api.interceptors.request.use(
 
     if (token) {
       config.headers = config.headers || {};
-      config.headers['Authorization'] = `Bearer ${token}`;
+      config.headers.Authorization = `Bearer ${token}`;
       console.log(`[AuthTrace][API] Authorization header injected successfully.`);
     }
 

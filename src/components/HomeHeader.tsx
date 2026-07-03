@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { formatDeliveryTime } from '../utils/distance';
@@ -20,12 +21,13 @@ interface HomeHeaderProps {
 }
 
 const HomeHeader: React.FC<HomeHeaderProps> = ({ onAddressPress, onProfilePress, onProfileLongPress, userData, avgTime }) => {
+  const insets = useSafeAreaInsets();
   const displayAddress = userData?.addressLine 
     ? `${userData.houseNumber ? userData.houseNumber + ', ' : ''}${userData.addressLine}`
     : "Set your delivery address";
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: 15 + insets.top }]}>
       {/* Top Section: Stacked Time/Address (Left) and Profile (Right) */}
       <View style={styles.topSection}>
         <View style={styles.leftInfo}>
@@ -55,7 +57,6 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: Colors.primary,
     paddingHorizontal: 15,
-    paddingTop: 15,
     paddingBottom: 15,
   },
   topSection: {

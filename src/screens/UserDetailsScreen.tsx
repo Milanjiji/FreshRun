@@ -87,13 +87,13 @@ export default function UserDetailsScreen({ userData, userToken, onSuccess, onBa
   // Retry a single API call once on 404, waiting delayMs before retrying.
   // This covers the narrow window where the backend /auth/login DB write
   // hasn't fully committed before the first protected request arrives.
-  const withRetryOn404 = async <T>(fn: () => Promise<T>, delayMs = 2000): Promise<T> => {
+  const withRetryOn404 = async <T,>(fn: () => Promise<T>, delayMs = 2000): Promise<T> => {
     try {
       return await fn();
     } catch (err: any) {
       if (err?.response?.status === 404) {
         console.warn('[UserDetailsScreen] Got 404 — retrying once after', delayMs, 'ms...');
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise<void>(resolve => setTimeout(() => resolve(), delayMs));
         return await fn();
       }
       throw err;

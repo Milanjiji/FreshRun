@@ -12,7 +12,7 @@ import {
   Animated,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import io from 'socket.io-client';
 import HomeHeader from '../components/HomeHeader';
 import { Colors } from '../theme/colors';
@@ -63,6 +63,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
 
+  const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const searchY = scrollY.interpolate({
@@ -73,7 +74,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const categoryY = scrollY.interpolate({
     inputRange: [0, 270],
-    outputRange: [330, 60],
+    outputRange: [330 + insets.top, 60 + insets.top],
     extrapolate: 'clamp',
   });
 
@@ -492,8 +493,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.primary} translucent={true} />
       
       <Animated.ScrollView 
         showsVerticalScrollIndicator={false}
@@ -503,7 +504,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
         )}
         scrollEventThrottle={16}
       >
-        <View style={{ height: 80, overflow: 'hidden' }}>
+        <View style={{ height: 80 + insets.top, overflow: 'hidden' }}>
           <HomeHeader 
             userData={userData} 
             avgTime={avgDeliveryTime}
@@ -695,7 +696,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       </Animated.ScrollView>
 
       {/* Absolute Positioned Sticky SearchBar */}
-      <Animated.View style={[styles.absoluteSearchBar, { transform: [{ translateY: searchY }] }]}>
+      <Animated.View style={[styles.absoluteSearchBar, { height: 60 + insets.top, paddingTop: insets.top, transform: [{ translateY: searchY }] }]}>
         <View style={[styles.searchRow, { marginBottom: 0 }]}>
           <View style={styles.searchContainer}>
             <Icon name="search-outline" size={20} color={Colors.primary} />
@@ -826,7 +827,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
       <CartFooter />
       <ActiveOrderWidget />
-    </SafeAreaView>
+    </View>
   );
 };
 
