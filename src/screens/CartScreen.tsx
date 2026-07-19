@@ -16,6 +16,7 @@ import { API_BASE_URL } from '../config/api';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { getOptimizedImageUrl } from '../utils/image';
+import { storage as mmkvStorage } from '../utils/storage';
 
 interface CartItem {
   id: string;
@@ -101,8 +102,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
         let anyStoreTooFar = false;
         const storeMap: Record<string, boolean> = {};
 
-        // Fetch location data for distance check (from storage)
-        const { storage: mmkvStorage } = require('../utils/storage');
+        // Location data for distance check, read from MMKV at top-of-file import
         const userLocation = mmkvStorage.getObject('locationData');
 
         for (const storeId of storeIds) {
@@ -308,11 +308,6 @@ const CartScreen: React.FC<CartScreenProps> = ({
     const effectiveExtraStoreCharge = isSelfPickup ? 0 : extraStoreCharge;
 
     let totalPayable = sub + hFee + dFee + rFee + lnFee + effectiveTip + effectiveExtraStoreCharge;
-
-    // Dev Bypass: If subtotal is exactly 1, force total to 1
-    if (sub === 1) {
-      totalPayable = 1;
-    }
 
     return {
       subtotal: sub,

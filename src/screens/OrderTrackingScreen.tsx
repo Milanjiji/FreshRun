@@ -89,7 +89,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
     let isMounted = true;
 
     const fetchOrder = async () => {
-      if (!orderId || !userToken) {
+      if (!orderId) {
         setLoadingOrder(false);
         setOrderError('Order details are unavailable.');
         return;
@@ -102,11 +102,9 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
       setOrderError(null);
 
       try {
-        const response = await fetch(`${API_BASE_URL}/orders/${orderId}`, {
-          headers: {
-            Authorization: `Bearer ${userToken}`,
-          },
-        });
+        // No Authorization header needed — the global fetch patch in App.tsx
+        // injects a fresh Firebase token automatically on every request.
+        const response = await fetch(`${API_BASE_URL}/orders/${orderId}`);
         const data = await response.json();
 
         if (!response.ok || !data.success || !data.order) {
@@ -135,7 +133,7 @@ const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeOrder?.id, orderId, userToken]);
+  }, [activeOrder?.id, orderId]);
 
   // Use a screen-level socket so historical order views subscribe to their own order room.
   useEffect(() => {

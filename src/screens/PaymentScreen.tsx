@@ -1,24 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   StatusBar,
-  ActivityIndicator,
 } from 'react-native';
 import { Alertt } from '../components/Alertt';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
-import { API_BASE_URL } from '../config/api';
 
 interface PaymentScreenProps {
   cartItems: any[];
   totalAmount: number;
   userData: any;
   userToken: string | null;
+  appSettings: any;
   onBack: () => void;
   onOrderConfirmed: (orderId: string, paymentMode: 'cod' | 'online') => void;
 }
@@ -28,10 +27,26 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
   totalAmount,
   userData,
   userToken,
+  appSettings,
   onBack,
-  onOrderConfirmed, 
+  onOrderConfirmed,
 }) => {
-  const [selectedMethod, setSelectedMethod] = useState<'cod' | 'online'>('cod');
+  const isCodEnabled = appSettings?.cod_enabled !== false;
+
+  const [selectedMethod, setSelectedMethod] = useState<'cod' | 'online'>(
+    isCodEnabled ? 'cod' : 'online'
+  );
+
+  // React to real-time COD disable: if user has COD selected and admin turns it off, alert and switch
+  useEffect(() => {
+    if (!isCodEnabled && selectedMethod === 'cod') {
+      setSelectedMethod('online');
+      Alertt.alert(
+        'Payment Method Unavailable',
+        'Cash on Delivery has been disabled by the administrator. Your payment method has been switched to Online Payment.'
+      );
+    }
+  }, [isCodEnabled]);
 
   const handleConfirmOrder = () => {
     if (cartItems.length === 0) {
@@ -57,28 +72,32 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
         {/* Content */}
         <View style={styles.content}>
           <Text style={styles.sectionTitle}>SELECT PAYMENT METHOD</Text>
-          
-          <TouchableOpacity 
-            style={[styles.paymentMethodBox, selectedMethod === 'cod' && styles.selectedBox]} 
-            onPress={() => setSelectedMethod('cod')}
-            activeOpacity={0.9}
-          >
-            <View style={styles.iconContainer}>
-              <Icon name="cash-outline" size={24} color={selectedMethod === 'cod' ? Colors.primary : '#888'} />
-            </View>
-            <View style={styles.methodInfo}>
-              <Text style={styles.methodName}>Cash on Delivery</Text>
-              <Text style={styles.methodDesc}>Pay cash when order arrives</Text>
-            </View>
-            <Icon 
-              name={selectedMethod === 'cod' ? "radio-button-on" : "radio-button-off"} 
-              size={24} 
-              color={selectedMethod === 'cod' ? Colors.primary : '#ccc'} 
-            />
-          </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={[styles.paymentMethodBox, selectedMethod === 'online' && styles.selectedBox]} 
+          {/* COD Option — only shown if cod_enabled */}
+          {isCodEnabled && (
+            <TouchableOpacity
+              style={[styles.paymentMethodBox, selectedMethod === 'cod' && styles.selectedBox]}
+              onPress={() => setSelectedMethod('cod')}
+              activeOpacity={0.9}
+            >
+              <View style={styles.iconContainer}>
+                <Icon name="cash-outline" size={24} color={selectedMethod === 'cod' ? Colors.primary : '#888'} />
+              </View>
+              <View style={styles.methodInfo}>
+                <Text style={styles.methodName}>Cash on Delivery</Text>
+                <Text style={styles.methodDesc}>Pay cash when order arrives</Text>
+              </View>
+              <Icon
+                name={selectedMethod === 'cod' ? "radio-button-on" : "radio-button-off"}
+                size={24}
+                color={selectedMethod === 'cod' ? Colors.primary : '#ccc'}
+              />
+            </TouchableOpacity>
+          )}
+
+          {/* Online Payment */}
+          <TouchableOpacity
+            style={[styles.paymentMethodBox, selectedMethod === 'online' && styles.selectedBox]}
             onPress={() => setSelectedMethod('online')}
             activeOpacity={0.9}
           >
@@ -89,12 +108,22 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
               <Text style={styles.methodName}>Online Payment</Text>
               <Text style={styles.methodDesc}>Pay securely via Razorpay (UPI, Card, Wallet)</Text>
             </View>
-            <Icon 
-              name={selectedMethod === 'online' ? "radio-button-on" : "radio-button-off"} 
-              size={24} 
-              color={selectedMethod === 'online' ? Colors.primary : '#ccc'} 
+            <Icon
+              name={selectedMethod === 'online' ? "radio-button-on" : "radio-button-off"}
+              size={24}
+              color={selectedMethod === 'online' ? Colors.primary : '#ccc'}
             />
           </TouchableOpacity>
+
+          {/* COD disabled notice */}
+          {!isCodEnabled && (
+            <View style={styles.codDisabledNotice}>
+              <Icon name="information-circle-outline" size={16} color="#888" />
+              <Text style={styles.codDisabledText}>
+                Cash on Delivery is currently unavailable. Please pay online.
+              </Text>
+            </View>
+          )}
 
           {/* Amount Box */}
           <View style={styles.amountBox}>
@@ -105,12 +134,12 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
 
         {/* Sticky Footer */}
         <View style={styles.stickyFooter}>
-          <TouchableOpacity 
-            style={styles.confirmBtn} 
+          <TouchableOpacity
+            style={styles.confirmBtn}
             onPress={handleConfirmOrder}
           >
             <Text style={styles.confirmBtnText}>
-                {selectedMethod === 'cod' ? 'Confirm Order' : 'Proceed to Pay'}
+              {selectedMethod === 'cod' ? 'Confirm Order' : 'Proceed to Pay'}
             </Text>
             <Icon name={selectedMethod === 'cod' ? "checkmark-circle" : "shield-checkmark"} size={18} color="#fff" />
           </TouchableOpacity>
@@ -188,6 +217,24 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.regular,
     color: '#888',
     marginTop: 2,
+  },
+  codDisabledNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fff8e1',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#ffe082',
+  },
+  codDisabledText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    color: '#795548',
+    lineHeight: 16,
   },
   amountBox: {
     flexDirection: 'row',

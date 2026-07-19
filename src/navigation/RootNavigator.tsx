@@ -7,6 +7,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 
 import { Alertt } from '../components/Alertt';
 import { API_BASE_URL } from '../config/api';
+import { storage } from '../utils/storage';
 
 // Screens
 import LoginScreen from '../screens/LoginScreen';
@@ -93,6 +94,8 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
     setSelectedTrackingOrderId,
   } = useOrderStore();
 
+  const { appSettings } = useSettingsStore();
+
   // Authentication & Onboarding Guards
   if (!userToken) {
     return (
@@ -146,6 +149,19 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
               }}
               onAddressUpdated={(updatedUser) => {
                 setUserData(updatedUser);
+                storage.setItem('userData', updatedUser);
+                // ✅ Update locationData so HomeScreen immediately re-fetches
+                // stores near the newly selected address, not the old GPS position.
+                if (updatedUser?.currentAddressLatitude && updatedUser?.currentAddressLongitude) {
+                  const newLoc = {
+                    latitude: parseFloat(updatedUser.currentAddressLatitude),
+                    longitude: parseFloat(updatedUser.currentAddressLongitude),
+                    isFromAddress: true,
+                    addressId: updatedUser.currentAddressId,
+                  };
+                  setLocationData(newLoc);
+                  storage.setItem('locationData', newLoc);
+                }
                 if (!hasLocation) {
                   setHasLocation(true);
                 }
@@ -309,6 +325,7 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
             totalAmount={props.route.params.totalAmount}
             userData={userData}
             userToken={userToken}
+            appSettings={appSettings}
             onBack={() => props.navigation.goBack()}
             onOrderConfirmed={(dummyId, mode) => {
               props.navigation.navigate('OrderConfirming', {

@@ -21,9 +21,7 @@ import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { API_BASE_URL } from '../config/api';
 import { Alertt } from '../components/Alertt';
-
-const CLOUDINARY_URL = 'https://api.cloudinary.com/v1_1/dubgo0vue/image/upload';
-const UPLOAD_PRESET = 'freshrun_preset';
+import { uploadImage } from '../utils/uploadImage';
 
 interface TicketDetailsScreenProps {
   ticketId: string | number;
@@ -88,29 +86,10 @@ const TicketDetailsScreen: React.FC<TicketDetailsScreenProps> = ({
     }
   };
 
+  // Upload is routed through the backend which signs the request.
+  // Cloudinary credentials never appear in the client bundle.
   const uploadToCloudinary = async (asset: any): Promise<string> => {
-    const data = new FormData();
-    data.append('file', {
-      uri: asset.uri,
-      type: asset.type || 'image/jpeg',
-      name: asset.fileName || 'upload.jpg',
-    } as any);
-    data.append('upload_preset', UPLOAD_PRESET);
-
-    const response = await fetch(CLOUDINARY_URL, {
-      method: 'POST',
-      body: data,
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    const resData = await response.json();
-    if (resData.secure_url) {
-      return resData.secure_url;
-    } else {
-      throw new Error('Upload URL not found');
-    }
+    return uploadImage(asset, 'ticket-replies');
   };
 
   const handleSendReply = async () => {
