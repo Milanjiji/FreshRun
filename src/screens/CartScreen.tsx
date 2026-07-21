@@ -9,6 +9,7 @@ import {
   StatusBar,
   Modal,
   Platform,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -17,6 +18,8 @@ import { Colors } from '../theme/colors';
 import { Fonts } from '../theme/typography';
 import { getOptimizedImageUrl } from '../utils/image';
 import { storage as mmkvStorage } from '../utils/storage';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { calculateBilling } from '../utils/pricingUtils';
 
 interface CartItem {
   id: string;
@@ -37,7 +40,23 @@ interface CartScreenProps {
   clearCart: () => void;
   locationAddress?: string;
   socket?: any;
-  onProceedToCheckout?: (totalAmount: number, deliveryFee: number, deliveryTip: number, isSelfPickup: boolean, rainyFee: number, lateNightFee: number, extraStoreCharge?: number) => void;
+  onProceedToCheckout?: (billing: {
+    grandTotal: number;
+    subtotal: number;
+    deliveryFee: number;
+    deliveryTip: number;
+    isSelfPickup: boolean;
+    surgeFee: number;
+    lateNightFee: number;
+    extraStoreCharge: number;
+    platformFee: number;
+    handlingFee: number;
+    packagingFee: number;
+    gstAmount: number;
+    couponCode: string | null;
+    couponDiscount: number;
+    platformDiscount: number;
+  }) => void;
 }
 
 const CartScreen: React.FC<CartScreenProps> = ({ 
@@ -49,6 +68,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
   socket,
   onProceedToCheckout
 }) => {
+  const { pricingConfig, setPricingConfig } = useSettingsStore();
   const [deliveryTip, setDeliveryTip] = useState(0);
   const [storeData, setStoreData] = useState<Record<string, any>>({});
   const [productStatuses, setProductStatuses] = useState<Record<string, any>>({});
@@ -59,6 +79,13 @@ const CartScreen: React.FC<CartScreenProps> = ({
   const [checkingServiceability, setCheckingServiceability] = useState(true);
   const [isSelfPickup, setIsSelfPickup] = useState(false);
   const [showPickupModal, setShowPickupModal] = useState(false);
+  const [distanceKm, setDistanceKm] = useState<number | null>(null);
+  // Coupon state
+  const [couponInput, setCouponInput] = useState('');
+  const [coupon, setCoupon] = useState<any>(null);
+  const [couponCode, setCouponCode] = useState<string>('');
+  const [couponError, setCouponError] = useState('');
+  const [couponLoading, setCouponLoading] = useState(false);
 
   // Haversine Distance Helper
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -71,18 +98,21 @@ const CartScreen: React.FC<CartScreenProps> = ({
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   };
 
-  // 1. Fetch App Settings
+  // 1. Fetch App Settings & Pricing Config
   const fetchAppSettings = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/settings`);
-      const data = await response.json();
-      if (data.success) {
-        setAppSettings(data.data);
-      }
+      const [settingsRes, pricingRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/settings`),
+        fetch(`${API_BASE_URL}/pricing/config/public`),
+      ]);
+      const settingsData = await settingsRes.json();
+      const pricingData  = await pricingRes.json();
+      if (settingsData.success) setAppSettings(settingsData.data);
+      if (pricingData.success)  setPricingConfig(pricingData.data);
     } catch (error) {
-      console.error('Error fetching app settings:', error);
+      console.error('Error fetching app settings / pricing config:', error);
     }
-  }, []);
+  }, [setPricingConfig]);
 
   // 2. Check Serviceability
   const checkServiceability = useCallback(async () => {
@@ -117,19 +147,20 @@ const CartScreen: React.FC<CartScreenProps> = ({
             const isActive = data.success && store ? store.is_active : true;
             storeMap[storeId] = isActive;
             
-            if (data.success && store) {
-              setStoreData(prev => ({ ...prev, [storeId]: store }));
+              if (data.success && store) {
+                setStoreData(prev => ({ ...prev, [storeId]: store }));
 
-              // Distance Check
-              if (userLocation?.latitude && store.latitude && !isSelfPickup) {
-                 const dist = calculateDistance(userLocation.latitude, userLocation.longitude, store.latitude, store.longitude);
-                 const limit = parseFloat(appSettings?.global_max_delivery_radius || 10);
-                 if (dist > limit) {
-                   anyStoreTooFar = true;
-                   setMaxRadius(limit);
-                 }
+                // Distance Check
+                if (userLocation?.latitude && store.latitude && !isSelfPickup) {
+                   const dist = calculateDistance(userLocation.latitude, userLocation.longitude, store.latitude, store.longitude);
+                   setDistanceKm(prev => prev === null ? dist : Math.max(prev, dist));
+                   const limit = parseFloat(appSettings?.global_max_delivery_radius || 10);
+                   if (dist > limit) {
+                     anyStoreTooFar = true;
+                     setMaxRadius(limit);
+                   }
+                }
               }
-            }
             if (!isActive) anyStoreOffline = true;
           } catch (e) {
             storeMap[storeId] = true;
@@ -217,113 +248,58 @@ const CartScreen: React.FC<CartScreenProps> = ({
     checkServiceability();
   }, [checkServiceability, locationAddress]);
 
-  // Derived Values (using useMemo for safety and performance)
+  // ── Billing calculation via shared pricing utility ────────────────────────
   const billingInfo = React.useMemo(() => {
-    // Subtotal
-    const sub = cartItems.reduce((sum, item) => {
-      const status = productStatuses[String(item.id)];
-      if (status && (!status.is_active || status.is_stock_out)) return sum;
-      const discount = item.discount_percent || 0;
-      const discountedPrice = item.price * (1 - discount / 100);
-      return sum + (discountedPrice * item.quantity);
-    }, 0);
-
-    // Savings
-    const savings = cartItems.reduce((sum, item) => {
-      const status = productStatuses[String(item.id)];
-      if (status && (!status.is_active || status.is_stock_out)) return sum;
-      const discount = item.discount_percent || 0;
-      return sum + (item.price * (discount / 100) * item.quantity);
-    }, 0);
-
-    // Handling Fee
-    const storeFees: Record<string, number> = {};
-    cartItems.forEach(item => {
-      const sId = String(item.store_id || (item as any).storeId);
-      if (!sId || sId === 'undefined') return;
-      const feeFromItem = (item as any).handling_fee;
-      const feeFromStore = storeData[sId]?.handling_fee;
-      const effectiveFee = parseFloat(feeFromItem !== undefined ? feeFromItem : feeFromStore) || 0;
-      if (storeFees[sId] === undefined || effectiveFee > storeFees[sId]) {
-        storeFees[sId] = effectiveFee;
-      }
+    return calculateBilling({
+      cartItems,
+      productStatuses,
+      storeData,
+      appSettings,
+      pricingConfig,
+      distanceKm,
+      deliveryTip,
+      isSelfPickup,
+      coupon,
     });
+  }, [cartItems, productStatuses, storeData, appSettings, pricingConfig, distanceKm, deliveryTip, isSelfPickup, coupon]);
 
-    const hFee = Object.values(storeFees).reduce((sum, fee) => sum + fee, 0);
+  const {
+    subtotal, totalSavings, platformFee, handlingFee, packagingFee,
+    deliveryFee, surgeFee, lateNightFee, isLateNight, extraStoreCharge,
+    deliveryTip: effectiveTip, gstAmount, couponDiscount, platformDiscount, grandTotal,
+  } = billingInfo;
 
-    // Dynamic Delivery Fee Calculation
-    let dFee = 0;
-    if (!isSelfPickup && sub < (parseFloat(appSettings?.free_delivery_threshold) || 500)) {
-       const { storage: mmkvStorage } = require('../utils/storage');
-       const userLoc = mmkvStorage.getObject('locationData');
-       
-       let maxDist = 0;
-       Object.values(storeData).forEach(s => {
-         if (userLoc?.latitude && s.latitude) {
-            const d = calculateDistance(userLoc.latitude, userLoc.longitude, s.latitude, s.longitude);
-            if (d > maxDist) maxDist = d;
-         }
-       });
-
-       dFee = parseFloat(appSettings?.min_delivery_fee) || 30;
-       const baseRadius = parseFloat(appSettings?.base_delivery_radius || 5);
-       
-       if (maxDist > baseRadius) {
-          const extraDist = maxDist - baseRadius;
-          const extraCharge = parseFloat(appSettings?.per_km_extra_charge || 10);
-          dFee += extraDist * extraCharge;
-       }
-
-       dFee = Math.round(dFee);
+  // ── Coupon validation ─────────────────────────────────────────────────────
+  const validateCoupon = async () => {
+    if (!couponInput.trim()) return;
+    if (coupon) { // remove coupon
+      setCoupon(null); setCouponCode(''); setCouponInput(''); setCouponError('');
+      return;
     }
-
-    // Rainy Surge Fee
-    const rFee = (!isSelfPickup && appSettings?.is_rainy_condition) ? (parseFloat(appSettings.rainy_condition_fee) || 0) : 0;
-
-    // Late Night Fee Check
-    const isLateNightCheck = (() => {
-      if (!appSettings?.late_night_start || !appSettings?.late_night_end) return false;
-      const now = new Date();
-      const currentTime = now.getHours() * 60 + now.getMinutes();
-      const [sh, sm] = appSettings.late_night_start.split(':').map(Number);
-      const [eh, em] = appSettings.late_night_end.split(':').map(Number);
-      const st = sh * 60 + sm;
-      const et = eh * 60 + em;
-      return st > et ? (currentTime >= st || currentTime <= et) : (currentTime >= st && currentTime <= et);
-    })();
-
-    let lnFee = isLateNightCheck ? (parseFloat(appSettings?.late_night_fee) || 0) : 0;
-    
-    // Apply Self-Pickup overrides
-    let effectiveTip = deliveryTip;
-    if (isSelfPickup) {
-      dFee = 0;
-      lnFee = 0;
-      effectiveTip = 0;
+    setCouponLoading(true);
+    setCouponError('');
+    try {
+      const token = mmkvStorage.getString('userToken');
+      const res = await fetch(`${API_BASE_URL}/pricing/validate-coupon`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code: couponInput.trim(), subtotal }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCoupon(data.data);
+        setCouponCode(couponInput.trim().toUpperCase());
+        setCouponError('');
+      } else {
+        setCoupon(null); setCouponCode('');
+        setCouponError(data.error || 'Invalid coupon');
+      }
+    } catch {
+      setCouponError('Could not verify coupon. Try again.');
+    } finally {
+      setCouponLoading(false);
     }
-
-    const storeIds = [...new Set(cartItems.map(item => String(item.store_id || (item as any).storeId)).filter(id => id && id !== 'undefined' && id !== 'null'))];
-    const extraStoreChargeSetting = parseFloat(appSettings?.extra_store_charge) || 20;
-    const extraStoreCharge = storeIds.length > 1 ? (storeIds.length - 1) * extraStoreChargeSetting : 0;
-    const effectiveExtraStoreCharge = isSelfPickup ? 0 : extraStoreCharge;
-
-    let totalPayable = sub + hFee + dFee + rFee + lnFee + effectiveTip + effectiveExtraStoreCharge;
-
-    return {
-      subtotal: sub,
-      totalSavings: savings,
-      handlingFee: hFee,
-      deliveryFee: dFee,
-      rainyFee: rFee,
-      lateNightFee: lnFee,
-      isLateNight: isLateNightCheck,
-      deliveryTip: effectiveTip,
-      extraStoreCharge: effectiveExtraStoreCharge,
-      total: totalPayable
-    };
-  }, [cartItems, productStatuses, storeData, appSettings, deliveryTip, isSelfPickup]);
-
-  const { subtotal, totalSavings, handlingFee, deliveryFee, rainyFee, lateNightFee, isLateNight, total, deliveryTip: effectiveTip, extraStoreCharge } = billingInfo;
+  };
 
 
 
@@ -557,6 +533,7 @@ const CartScreen: React.FC<CartScreenProps> = ({
           <View style={styles.billSection}>
              <Text style={styles.billTitle}>BILL DETAILS</Text>
              <View style={styles.billContent}>
+                {/* Item Total */}
                 <View style={styles.billRow}>
                    <Text style={styles.billLabel}>Item Total</Text>
                    <View style={{ alignItems: 'flex-end' }}>
@@ -569,20 +546,46 @@ const CartScreen: React.FC<CartScreenProps> = ({
                    </View>
                 </View>
 
-                <View style={styles.billRow}>
-                   <Text style={styles.billLabelDashed}>Handling Fee</Text>
-                   <Text style={styles.billValue}>₹{handlingFee.toFixed(2)}</Text>
-                </View>
+                {/* Platform Fee */}
+                {pricingConfig?.platform_fee_enabled !== false && (
+                  <View style={styles.billRow}>
+                    <View style={styles.rowInline}>
+                      <Text style={styles.billLabelDashed}>Platform Fee</Text>
+                      <Icon name="information-circle-outline" size={13} color="#bbb" style={{ marginLeft: 4 }} />
+                    </View>
+                    <Text style={styles.billValue}>₹{platformFee.toFixed(2)}</Text>
+                  </View>
+                )}
+
+                {/* Handling Fee */}
+                {pricingConfig?.handling_fee_enabled !== false && (
+                  <View style={styles.billRow}>
+                    <Text style={styles.billLabelDashed}>Order Handling Fee</Text>
+                    <Text style={styles.billValue}>₹{handlingFee.toFixed(2)}</Text>
+                  </View>
+                )}
+
+                {/* Packaging Fee */}
+                {pricingConfig?.packaging_fee_enabled && (
+                  <View style={styles.billRow}>
+                    <Text style={styles.billLabelDashed}>Packaging Fee</Text>
+                    <Text style={styles.billValue}>₹{packagingFee.toFixed(2)}</Text>
+                  </View>
+                )}
+
                 <View style={styles.billDivider} />
+                {/* Delivery Tip */}
                 <View style={styles.billRow}>
                    <Text style={styles.billLabel}>Delivery Partner Tip</Text>
-                   {deliveryTip > 0 ? (
-                     <Text style={styles.billValue}>₹{deliveryTip.toFixed(2)}</Text>
+                   {effectiveTip > 0 ? (
+                     <Text style={styles.billValue}>₹{effectiveTip.toFixed(2)}</Text>
                    ) : (
                      <TouchableOpacity><Text style={styles.addTipText}>Add a tip</Text></TouchableOpacity>
                    )}
                 </View>
                 <View style={styles.billDivider} />
+
+                {/* Delivery Fee */}
                 <View style={styles.billRow}>
                    <View>
                       <Text style={styles.billLabelDashed}>Delivery Partner Fee</Text>
@@ -590,13 +593,25 @@ const CartScreen: React.FC<CartScreenProps> = ({
                         <Text style={[styles.feeSubtext, { color: '#4caf50' }]}>Free Delivery applied!</Text>
                       ) : (
                         <Text style={styles.feeSubtext}>
-                          Add items worth ₹{Math.max(0, (appSettings?.free_delivery_threshold || 500) - subtotal)} to avail Free Delivery
+                          Add items worth ₹{Math.max(0, (appSettings?.free_delivery_threshold || 500) - subtotal).toFixed(0)} to avail Free Delivery
                         </Text>
                       )}
                    </View>
-
                    <Text style={styles.billValue}>₹{deliveryFee.toFixed(2)}</Text>
                 </View>
+
+                {/* Surge Fee (rain + peak) */}
+                {surgeFee > 0 && (
+                  <View style={styles.billRow}>
+                    <View style={styles.rowInline}>
+                      <Text style={styles.billLabelDashed}>Surge Fee</Text>
+                      <Icon name="flash" size={14} color="#e65100" style={{ marginLeft: 5 }} />
+                    </View>
+                    <Text style={styles.billValue}>₹{surgeFee.toFixed(2)}</Text>
+                  </View>
+                )}
+
+                {/* Late Night Fee */}
                 <View style={styles.billRow}>
                    <View style={styles.rowInline}>
                       <Text style={styles.billLabelDashed}>Late Night Fee</Text>
@@ -605,23 +620,14 @@ const CartScreen: React.FC<CartScreenProps> = ({
                    <Text style={styles.billValue}>₹{lateNightFee.toFixed(2)}</Text>
                 </View>
 
-                {rainyFee > 0 && (
-                  <View style={styles.billRow}>
-                    <View style={styles.rowInline}>
-                        <Text style={styles.billLabelDashed}>Rainy Surge Fee</Text>
-                        <Icon name="cloud-rain" size={14} color="#4A90E2" style={{ marginLeft: 5 }} />
-                    </View>
-                    <Text style={styles.billValue}>₹{rainyFee.toFixed(2)}</Text>
-                  </View>
-                )}
-
                 <Text style={styles.feeSubtext}>
-                  {isLateNight 
+                  {isLateNight
                     ? `Applied for orders between ${appSettings?.late_night_start} - ${appSettings?.late_night_end}`
                     : `No late night fees on orders above ₹${appSettings?.free_delivery_threshold || 199}`
                   }
                 </Text>
 
+                {/* Extra Store Charge */}
                 {extraStoreCharge > 0 && (
                   <View style={styles.billRow}>
                      <View style={styles.rowInline}>
@@ -632,10 +638,63 @@ const CartScreen: React.FC<CartScreenProps> = ({
                   </View>
                 )}
 
+                {/* Coupon Input */}
+                <View style={styles.billDivider} />
+                <View style={[styles.billRow, { alignItems: 'center', marginBottom: 4 }]}>
+                  <TextInput
+                    style={styles.couponInput}
+                    placeholder="Enter coupon code"
+                    placeholderTextColor="#bbb"
+                    value={couponInput}
+                    onChangeText={setCouponInput}
+                    autoCapitalize="characters"
+                    editable={!coupon}
+                  />
+                  <TouchableOpacity
+                    style={[styles.couponApplyBtn, coupon && { backgroundColor: '#e53935' }]}
+                    onPress={validateCoupon}
+                    disabled={couponLoading}
+                  >
+                    <Text style={styles.couponApplyText}>
+                      {couponLoading ? '...' : coupon ? 'Remove' : 'Apply'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {!!couponError && <Text style={styles.couponErrorText}>{couponError}</Text>}
+
+                {/* Coupon Discount */}
+                {coupon && couponDiscount > 0 && (
+                  <View style={styles.billRow}>
+                    <View style={styles.rowInline}>
+                      <Text style={[styles.billLabelDashed, { color: '#4caf50' }]}>Coupon ({couponCode})</Text>
+                    </View>
+                    <Text style={[styles.billValue, { color: '#4caf50' }]}>- ₹{couponDiscount.toFixed(2)}</Text>
+                  </View>
+                )}
+
+                {/* Platform Discount */}
+                {platformDiscount > 0 && (
+                  <View style={styles.billRow}>
+                    <Text style={[styles.billLabelDashed, { color: '#4caf50' }]}>Platform Offer</Text>
+                    <Text style={[styles.billValue, { color: '#4caf50' }]}>- ₹{platformDiscount.toFixed(2)}</Text>
+                  </View>
+                )}
+
+                {/* GST (inclusive — informational only) */}
+                {gstAmount > 0 && (
+                  <View style={styles.billRow}>
+                    <View style={styles.rowInline}>
+                      <Text style={styles.billLabelDashed}>GST ({pricingConfig?.gst_percentage}%)</Text>
+                      <Icon name="information-circle-outline" size={12} color="#aaa" style={{ marginLeft: 4 }} />
+                    </View>
+                    <Text style={[styles.billValue, { color: '#999', fontSize: 12 }]}>incl.</Text>
+                  </View>
+                )}
+
                 <View style={styles.billDividerSolid} />
                 <View style={styles.totalRow}>
                    <Text style={styles.totalLabel}>To Pay</Text>
-                   <Text style={styles.totalValue}>₹{total.toFixed(2)}</Text>
+                   <Text style={styles.totalValue}>₹{grandTotal.toFixed(2)}</Text>
                 </View>
              </View>
           </View>
@@ -656,9 +715,9 @@ const CartScreen: React.FC<CartScreenProps> = ({
            <View style={styles.footerHeader}>
               <View style={styles.footerPriceRow}>
                  <Text style={styles.footerToPay}>To Pay: </Text>
-                 <Text style={styles.footerTotal}>₹{total.toFixed(0)} </Text>
+                 <Text style={styles.footerTotal}>₹{grandTotal.toFixed(0)} </Text>
                  {totalSavings > 0 && (
-                   <Text style={styles.footerTotalStrike}>₹{(total + totalSavings).toFixed(2)}</Text>
+                   <Text style={styles.footerTotalStrike}>₹{(grandTotal + totalSavings).toFixed(2)}</Text>
                  )}
               </View>
               <TouchableOpacity>
@@ -696,7 +755,23 @@ const CartScreen: React.FC<CartScreenProps> = ({
              <TouchableOpacity 
                 style={styles.checkoutBtn} 
                 disabled={checkingServiceability}
-                onPress={() => onProceedToCheckout && onProceedToCheckout(total, deliveryFee, deliveryTip, isSelfPickup, rainyFee, lateNightFee, extraStoreCharge)}
+                onPress={() => onProceedToCheckout && onProceedToCheckout({
+                   grandTotal,
+                   subtotal,
+                   deliveryFee,
+                   deliveryTip: effectiveTip,
+                   isSelfPickup,
+                   surgeFee,
+                   lateNightFee,
+                   extraStoreCharge,
+                   platformFee,
+                   handlingFee,
+                   packagingFee,
+                   gstAmount,
+                   couponCode: couponCode || null,
+                   couponDiscount,
+                   platformDiscount,
+                 })}
               >
                  <Text style={styles.checkoutBtnText}>
                    {checkingServiceability ? 'Checking...' : 'Proceed to Checkout'}
@@ -1093,6 +1168,36 @@ const styles = StyleSheet.create({
   rowInline: {
      flexDirection: 'row',
      alignItems: 'center',
+  },
+  couponInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    fontFamily: Fonts.regular,
+    color: '#333',
+    marginRight: 8,
+  },
+  couponApplyBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  couponApplyText: {
+    color: '#fff',
+    fontFamily: Fonts.bold,
+    fontSize: 13,
+  },
+  couponErrorText: {
+    color: '#e53935',
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    marginBottom: 6,
+    marginLeft: 4,
   },
   totalRow: {
      flexDirection: 'row',

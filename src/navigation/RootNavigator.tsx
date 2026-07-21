@@ -36,21 +36,37 @@ export type RootStackParamList = {
   Cart: undefined;
   Payment: {
     totalAmount: number;
+    subtotal: number;
     deliveryFee: number;
     deliveryTip: number;
     isSelfPickup: boolean;
-    rainyFee: number;
+    surgeFee: number;
     lateNightFee: number;
     extraStoreCharge: number;
+    platformFee: number;
+    handlingFee: number;
+    packagingFee: number;
+    gstAmount: number;
+    couponCode: string | null;
+    couponDiscount: number;
+    platformDiscount: number;
   };
   OrderConfirming: {
     totalAmount: number;
+    subtotal: number;
     deliveryFee: number;
     deliveryTip: number;
     isSelfPickup: boolean;
-    rainyFee: number;
+    surgeFee: number;
     lateNightFee: number;
     extraStoreCharge: number;
+    platformFee: number;
+    handlingFee: number;
+    packagingFee: number;
+    gstAmount: number;
+    couponCode: string | null;
+    couponDiscount: number;
+    platformDiscount: number;
     paymentMode: 'cod' | 'online';
   };
   OrderTracking: { orderId: string };
@@ -302,15 +318,23 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
             clearCart={clearCart}
             locationAddress={userData?.address?.line1}
             socket={socket}
-            onProceedToCheckout={(total, fee, tip, isPickup, rainy, lateNight, extraStore) => {
+            onProceedToCheckout={(billing) => {
               props.navigation.navigate('Payment', {
-                totalAmount: total,
-                deliveryFee: fee,
-                deliveryTip: tip,
-                isSelfPickup: !!isPickup,
-                rainyFee: rainy,
-                lateNightFee: lateNight,
-                extraStoreCharge: extraStore || 0,
+                totalAmount:      billing.grandTotal,
+                subtotal:         billing.subtotal,
+                deliveryFee:      billing.deliveryFee,
+                deliveryTip:      billing.deliveryTip,
+                isSelfPickup:     billing.isSelfPickup,
+                surgeFee:         billing.surgeFee,
+                lateNightFee:     billing.lateNightFee,
+                extraStoreCharge: billing.extraStoreCharge,
+                platformFee:      billing.platformFee,
+                handlingFee:      billing.handlingFee,
+                packagingFee:     billing.packagingFee,
+                gstAmount:        billing.gstAmount,
+                couponCode:       billing.couponCode,
+                couponDiscount:   billing.couponDiscount,
+                platformDiscount: billing.platformDiscount,
               });
             }}
           />
@@ -343,11 +367,19 @@ export const RootNavigator = ({ socket }: { socket: any }) => {
             {...props}
             cartItems={cartItems}
             totalAmount={props.route.params.totalAmount}
+            subtotal={props.route.params.subtotal}
             deliveryFee={props.route.params.deliveryFee}
             deliveryTip={props.route.params.deliveryTip}
-            rainyFee={props.route.params.rainyFee}
+            surgeFee={props.route.params.surgeFee}
             lateNightFee={props.route.params.lateNightFee}
             extraStoreCharge={props.route.params.extraStoreCharge}
+            platformFee={props.route.params.platformFee}
+            handlingFee={props.route.params.handlingFee}
+            packagingFee={props.route.params.packagingFee}
+            gstAmount={props.route.params.gstAmount}
+            couponCode={props.route.params.couponCode}
+            couponDiscount={props.route.params.couponDiscount}
+            platformDiscount={props.route.params.platformDiscount}
             userData={userData}
             locationData={locationData}
             userToken={userToken}

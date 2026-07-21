@@ -18,11 +18,19 @@ import RazorpayCheckout from 'react-native-razorpay';
 interface OrderConfirmingScreenProps {
   cartItems: any[];
   totalAmount: number;
+  subtotal?: number;
   deliveryFee: number;
   deliveryTip: number;
-  rainyFee: number;
+  surgeFee?: number;
   lateNightFee: number;
   extraStoreCharge?: number;
+  platformFee?: number;
+  handlingFee?: number;
+  packagingFee?: number;
+  gstAmount?: number;
+  couponCode?: string | null;
+  couponDiscount?: number;
+  platformDiscount?: number;
   userData: any;
   locationData?: { latitude: number; longitude: number } | null;
   userToken: string | null;
@@ -35,11 +43,19 @@ interface OrderConfirmingScreenProps {
 const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
   cartItems,
   totalAmount,
+  subtotal,
   deliveryFee,
   deliveryTip,
-  rainyFee,
+  surgeFee = 0,
   lateNightFee,
   extraStoreCharge = 0,
+  platformFee = 0,
+  handlingFee = 0,
+  packagingFee = 0,
+  gstAmount = 0,
+  couponCode = null,
+  couponDiscount = 0,
+  platformDiscount = 0,
   userData,
   locationData,
   userToken,
@@ -65,12 +81,19 @@ const OrderConfirmingScreen: React.FC<OrderConfirmingScreenProps> = ({
           store_id: storeId,
           items: cartItems,
           total_amount: totalAmount,
-          subtotal: isOneRupeeOrder ? totalAmount : totalAmount - deliveryFee - deliveryTip - rainyFee - lateNightFee - extraStoreCharge,
+          subtotal: subtotal || (isOneRupeeOrder ? totalAmount : totalAmount - deliveryFee - deliveryTip - surgeFee - lateNightFee - extraStoreCharge),
           delivery_fee: isOneRupeeOrder ? 0 : deliveryFee,
           delivery_tip: isOneRupeeOrder ? 0 : deliveryTip,
-          rainy_surge_fee: isOneRupeeOrder ? 0 : rainyFee,
+          surge_fee: isOneRupeeOrder ? 0 : surgeFee,
           late_night_fee: isOneRupeeOrder ? 0 : lateNightFee,
           extra_store_charge: isOneRupeeOrder ? 0 : extraStoreCharge,
+          platform_fee: isOneRupeeOrder ? 0 : platformFee,
+          handling_fee: isOneRupeeOrder ? 0 : handlingFee,
+          packaging_fee: isOneRupeeOrder ? 0 : packagingFee,
+          gst_amount: gstAmount,
+          coupon_code: couponCode,
+          coupon_discount: couponDiscount,
+          platform_discount: platformDiscount,
           is_pickup: isSelfPickup,
           payment_mode: paymentMode,
           delivery_address: {

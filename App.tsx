@@ -188,7 +188,7 @@ function App() {
 
   const { cartItems, setCartItems } = useCartStore();
   const { activeOrders, setActiveOrders, upsertActiveOrder, removeActiveOrder, setSelectedTrackingOrderId } = useOrderStore();
-  const { appSettings, setAppSettings } = useSettingsStore();
+  const { appSettings, setAppSettings, setPricingConfig } = useSettingsStore();
 
   const [loading, setLoading] = useState(true);
   const [postLoginLoading, setPostLoginLoading] = useState(false);
@@ -357,18 +357,23 @@ function App() {
     };
   }, []);
 
-  // Fetch Global App Settings
+  // Fetch Global App Settings + Pricing Config
   useEffect(() => {
-    const fetchSettings = async () => {
+    const fetchConfigs = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/settings`);
-        const data = await res.json();
-        if (data.success) setAppSettings(data.data);
+        const [settingsRes, pricingRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/settings`),
+          fetch(`${API_BASE_URL}/pricing/config/public`),
+        ]);
+        const settingsData = await settingsRes.json();
+        const pricingData  = await pricingRes.json();
+        if (settingsData.success) setAppSettings(settingsData.data);
+        if (pricingData.success)  setPricingConfig(pricingData.data);
       } catch (e) {
-        console.warn('Failed to fetch settings in App.tsx');
+        console.warn('Failed to fetch configs in App.tsx');
       }
     };
-    fetchSettings();
+    fetchConfigs();
   }, []);
 
   // FCM Setup
@@ -456,6 +461,10 @@ function App() {
 
       socketRef.current.on('settings_updated', (newSettings: any) => {
         setAppSettings(newSettings);
+      });
+
+      socketRef.current.on('pricing_updated', (newConfig: any) => {
+        setPricingConfig(newConfig);
       });
 
       socketRef.current.on('disconnect', () => console.log('[Socket] Disconnected'));
